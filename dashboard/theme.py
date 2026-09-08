@@ -12,15 +12,16 @@ PAPER = "#F4F5F7"
 WHITE = "#FFFFFF"
 
 VENDOR_COLORS = {
-    "Detroit Salt": "#0B3D5C",
-    "Compass Minerals": "#C45C26",
-    "American Rock Salt": "#2E6B4F",
-    "Cargill": "#8B2942",
-    "Morton Salt": "#5C4E8A",
-    "Eastern Salt": "#6B5344",
-    "Riverside Construction Materials": "#3D7A8C",
+    "American Rock Salt": "#4E79A7",
+    "Cargill": "#EDC948",
+    "Compass Minerals": "#76B7B2",
+    "Morton Salt": "#E15759",
+    "Detroit Salt": "#59A14F",
+    "Eastern Salt": "#F28E2B",
+    "Riverside Construction Materials": "#B07AA1",
     "Unattributed": "#9AA3B2",
 }
+PRICE_LINE = "#6B4C9A"
 STATE_COLORS = {"MI": "#1B3A4B", "PA": "#C45C26"}
 STATE_NAMES = {"MI": "Michigan", "PA": "Pennsylvania"}
 

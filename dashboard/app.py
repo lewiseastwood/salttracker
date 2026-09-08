@@ -33,7 +33,7 @@ st.markdown("""
 <style>
 @import url("https://fonts.googleapis.com/css2?family=Source+Sans+3:wght@400;600;700&family=Libre+Baskerville:wght@700&display=swap");
 html, body, [class*="css"] { font-family: "Source Sans 3", sans-serif; }
-.block-container { padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1280px; }
+.block-container { padding-top: 1.4rem; padding-bottom: 2rem; max-width: 1400px; }
 h1, h2, h3 { font-family: "Libre Baskerville", Georgia, serif !important; color: #1B3A4B; letter-spacing: -0.02em; }
 div[data-testid="stMetric"] {
     background: #fff; border: 1px solid #D7DCE0; border-radius: 8px;
@@ -59,7 +59,7 @@ def load():
     return pd.read_csv(RAW_CSV), pd.read_csv(VENDOR_CSV), pd.read_csv(STATE_CSV)
 
 
-def excel_bytes(vendor: pd.DataFrame, state: pd.DataFrame, raw: pd.DataFrame) -> bytes:
+def excel_bytes(*sheets: tuple[str, pd.DataFrame]) -> bytes:
     """Workbook of the currently filtered tables, formatted for a briefing pack."""
     wb = Workbook()
     header_fill = PatternFill("solid", fgColor="1B3A4B")
@@ -82,23 +82,64 @@ def excel_bytes(vendor: pd.DataFrame, state: pd.DataFrame, raw: pd.DataFrame) ->
         for row in ws.iter_rows(min_row=2, max_row=ws.max_row, max_col=ws.max_column):
             for cell in row:
                 cell.border = thin
-                if isinstance(cell.value, float) and cell.column_letter:
-                    pass
         ws.freeze_panes = "A2"
         ws.auto_filter.ref = ws.dimensions
         for col in ws.columns:
             letter = col[0].column_letter
-            ws.column_dimensions[letter].width = min(28, max(12, len(str(col[0].value or "")) + 4))
+            ws.column_dimensions[letter].width = min(32, max(14, len(str(col[0].value or "")) + 4))
 
-    write("By supplier", vendor)
-    write("By state", state)
-    write("Line items", raw.head(5000) if len(raw) > 5000 else raw)
-    # drop the empty default sheet
+    for name, df in sheets:
+        write(name, df)
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def supplier_table(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["state"] = out["state"].map(lambda s: STATE_NAMES.get(s, s))
+    out = out.rename(columns={
+        "state": "State",
+        "fiscal_year": "Fiscal year",
+        "season": "Season",
+        "vendor": "Supplier",
+        "contracted_tons": "Contracted tons",
+        "priced_tons": "Priced tons",
+        "weighted_avg_price": "Weighted $/ton",
+        "simple_avg_price": "Unweighted $/ton",
+        "contract_value": "Contract value ($)",
+        "volume_share": "Volume share",
+        "n_counties": "Counties",
+    })
+    cols = [c for c in [
+        "State", "Fiscal year", "Season", "Supplier", "Contracted tons",
+        "Priced tons", "Weighted $/ton", "Unweighted $/ton",
+        "Contract value ($)", "Volume share", "Counties",
+    ] if c in out.columns]
+    return out[cols].sort_values(["State", "Fiscal year", "Supplier"])
+
+
+def state_table(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+    out["state"] = out["state"].map(lambda s: STATE_NAMES.get(s, s))
+    out = out.rename(columns={
+        "state": "State",
+        "fiscal_year": "Fiscal year",
+        "season": "Season",
+        "contracted_tons": "Contracted tons",
+        "priced_tons": "Priced tons",
+        "weighted_avg_price": "Weighted $/ton",
+        "simple_avg_price": "Unweighted $/ton",
+        "contract_value": "Contract value ($)",
+        "n_counties": "Counties",
+    })
+    cols = [c for c in [
+        "State", "Fiscal year", "Season", "Contracted tons", "Priced tons",
+        "Weighted $/ton", "Unweighted $/ton", "Contract value ($)", "Counties",
+    ] if c in out.columns]
+    return out[cols].sort_values(["State", "Fiscal year"])
 
 
 raw, vendor, state = load()
@@ -159,6 +200,29 @@ if v.empty:
     st.warning("No contracts match those filters.")
     st.stop()
 
+by_supplier = supplier_table(v)
+by_state = state_table(s)
+line_keep = [c for c in [
+    "state", "fiscal_year", "vendor", "county", "program", "channel",
+    "contracted_tons", "price_per_ton", "extended_value", "record_type",
+    "source_doc", "source_page",
+] if c in r.columns]
+line_items = r[line_keep].copy()
+if "state" in line_items.columns:
+    line_items["state"] = line_items["state"].map(lambda s: STATE_NAMES.get(s, s))
+line_items = line_items.rename(columns={
+    "state": "State", "fiscal_year": "Fiscal year", "vendor": "Supplier",
+    "county": "County / drop point", "program": "Program", "channel": "Channel",
+    "contracted_tons": "Contracted tons", "price_per_ton": "Price $/ton",
+    "extended_value": "Extended value ($)", "record_type": "Record type",
+    "source_doc": "Source document", "source_page": "Page",
+})
+pack = excel_bytes(
+    ("By supplier", by_supplier),
+    ("By state", by_state),
+    ("Line items", line_items.head(10_000)),
+)
+
 latest_fy = int(s["fiscal_year"].max())
 prev_fy = int(s[s["fiscal_year"] < latest_fy]["fiscal_year"].max()) if (s["fiscal_year"] < latest_fy).any() else None
 cur = s[s["fiscal_year"] == latest_fy]
@@ -169,32 +233,31 @@ def _delta(now, then, fmt):
         return None
     return fmt.format(now - then)
 
-k1, k2, k3, k4 = st.columns(4)
+k1, k2, k3 = st.columns(3)
 tons_now = float(cur["contracted_tons"].fillna(0).sum())
 tons_prev = float(prev["contracted_tons"].fillna(0).sum()) if prev is not None and not prev.empty else None
-k1.metric(
-    f"FY{latest_fy} contracted volume",
-    f"{tons_now:,.0f} t",
-    _delta(tons_now, tons_prev, "{:+,.0f} t vs prior year") if tons_prev else None,
-)
 priced_now = float(cur["priced_tons"].fillna(0).sum())
 if priced_now:
     wavg = float(cur["contract_value"].sum() / priced_now)
     wavg_prev = None
     if prev is not None and not prev.empty and prev["priced_tons"].fillna(0).sum():
         wavg_prev = float(prev["contract_value"].sum() / prev["priced_tons"].sum())
-        delta = f"{(wavg / wavg_prev - 1) * 100:+.1f}% vs FY{prev_fy}"
+        price_delta = f"{(wavg / wavg_prev - 1) * 100:+.1f}% vs FY{prev_fy}"
     else:
-        delta = None
-    k2.metric(f"FY{latest_fy} effective price", f"${wavg:,.2f}/t", delta)
-    k3.metric(f"FY{latest_fy} contract value", f"${cur['contract_value'].sum() / 1e6:,.1f}m")
+        price_delta = None
+    k1.metric("Avg. Price", f"${wavg:,.2f}", price_delta)
+    k3.metric("Estd. Value", f"${cur['contract_value'].sum() / 1e6:,.0f}M")
 else:
-    k2.metric(f"FY{latest_fy} effective price", "—")
-    k3.metric(f"FY{latest_fy} contract value", "—")
-k4.metric("Suppliers in view", f"{v.loc[v['is_attributed'], 'vendor'].nunique()}")
+    k1.metric("Avg. Price", "—")
+    k3.metric("Estd. Value", "—")
+k2.metric(
+    "Volume (T)",
+    f"{tons_now / 1000:,.0f}K",
+    _delta(tons_now, tons_prev, "{:+,.0f} t vs prior year") if tons_prev else None,
+)
 
 st.markdown(
-    '<p class="note">Fiscal years run 1 Oct – 30 Sep and are named for the year they end. '
+    '<p class="note">Michigan and Pennsylvania only. Fiscal years run 1 Oct – 30 Sep and are named for the year they end. '
     "Price is the volume-weighted average unless you switch the basis. "
     "FY2027 is the awarded upcoming winter, not delivered volume. "
     "PA FY2022–FY2023 volume has no published supplier award and is held out of share.</p>",
@@ -204,21 +267,53 @@ st.markdown(
 if latest_fy == 2027:
     st.caption("FY2027 contracts were awarded in summer 2026 and may still be amended by change notice.")
 
-left, right = st.columns(2)
-with left:
-    st.plotly_chart(charts.price_timeseries(s, metric), width="stretch")
-with right:
-    st.plotly_chart(charts.volume_timeseries(s), width="stretch")
+m1, m2, m3 = st.columns(3)
+with m1:
+    st.plotly_chart(charts.state_overview_map(s), width="stretch")
+    st.caption("Only Michigan and Pennsylvania are in this tracker.")
+with m2:
+    st.plotly_chart(charts.vendor_bubbles(v), width="stretch")
+with m3:
+    st.plotly_chart(charts.vendor_price_bars(v, metric), width="stretch")
+
+st.plotly_chart(charts.volume_price_comparison(v, metric), width="stretch")
+
+st.caption("Download the current filters as tables. Full tables are also on the last tab.")
+x1, x2, x3, x4 = st.columns(4)
+x1.download_button(
+    "Supplier table · CSV", by_supplier.to_csv(index=False).encode(),
+    "salt_by_supplier.csv", "text/csv", width="stretch", key="top_supplier_csv",
+)
+x2.download_button(
+    "State table · CSV", by_state.to_csv(index=False).encode(),
+    "salt_by_state.csv", "text/csv", width="stretch", key="top_state_csv",
+)
+x3.download_button(
+    "Line items · CSV", line_items.to_csv(index=False).encode(),
+    "salt_line_items.csv", "text/csv", width="stretch", key="top_line_csv",
+)
+x4.download_button(
+    "All three · Excel", pack, "salt_contract_tables.xlsx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    width="stretch", key="top_excel",
+)
 
 tab_price, tab_vol, tab_share, tab_table = st.tabs(
     ["Price by supplier", "Volume by supplier", "Market share", "Tables & export"]
 )
 
+money_fmt = st.column_config.NumberColumn(format="$%.2f")
+tons_fmt = st.column_config.NumberColumn(format="%.0f")
+share_fmt = st.column_config.NumberColumn(format="%.1%")
+value_fmt = st.column_config.NumberColumn(format="$%.0f")
+
 with tab_price:
+    st.plotly_chart(charts.price_timeseries(s, metric), width="stretch")
     for code in sel_states:
         st.plotly_chart(charts.vendor_price(v, metric, code), width="stretch")
 
 with tab_vol:
+    st.plotly_chart(charts.volume_timeseries(s), width="stretch")
     for code in sel_states:
         st.plotly_chart(charts.vendor_volume(v, code), width="stretch")
 
@@ -231,44 +326,54 @@ with tab_share:
         st.plotly_chart(charts.vendor_share(v, code), width="stretch")
 
 with tab_table:
-    show = v[[
-        "state", "fiscal_year", "season", "vendor", "contracted_tons",
-        "priced_tons", "weighted_avg_price", "simple_avg_price",
-        "contract_value", "volume_share", "n_counties",
-    ]].sort_values(["state", "fiscal_year", "vendor"])
-    st.dataframe(
-        show.style.format({
-            "contracted_tons": "{:,.0f}", "priced_tons": "{:,.0f}",
-            "weighted_avg_price": "${:,.2f}", "simple_avg_price": "${:,.2f}",
-            "contract_value": "${:,.0f}", "volume_share": "{:.1%}",
-        }, na_rep="—"),
-        width="stretch", height=380, hide_index=True,
+    st.markdown("**These tables follow the dropdowns above** — selected state, supplier and years only.")
+    t1, x2, x3, x4 = st.columns(4)
+    t1.download_button(
+        "Supplier table · CSV", by_supplier.to_csv(index=False).encode(),
+        "salt_by_supplier.csv", "text/csv", width="stretch", key="tab_supplier_csv",
+    )
+    x2.download_button(
+        "State table · CSV", by_state.to_csv(index=False).encode(),
+        "salt_by_state.csv", "text/csv", width="stretch", key="tab_state_csv",
+    )
+    x3.download_button(
+        "Line items · CSV", line_items.to_csv(index=False).encode(),
+        "salt_line_items.csv", "text/csv", width="stretch", key="tab_line_csv",
+    )
+    x4.download_button(
+        "All three · Excel", pack, "salt_contract_tables.xlsx",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        width="stretch", key="tab_excel",
     )
 
-    e1, e2, e3, e4 = st.columns(4)
-    e1.download_button(
-        "Export supplier table (CSV)", show.to_csv(index=False).encode(),
-        "salt_by_supplier.csv", "text/csv", width="stretch",
+    st.subheader("By supplier")
+    st.dataframe(
+        by_supplier,
+        width="stretch", height=360, hide_index=True,
+        column_config={
+            "Contracted tons": tons_fmt, "Priced tons": tons_fmt,
+            "Weighted $/ton": money_fmt, "Unweighted $/ton": money_fmt,
+            "Contract value ($)": value_fmt, "Volume share": share_fmt,
+        },
     )
-    e2.download_button(
-        "Export state table (CSV)", s.to_csv(index=False).encode(),
-        "salt_by_state.csv", "text/csv", width="stretch",
+
+    st.subheader("By state")
+    st.dataframe(
+        by_state,
+        width="stretch", height=280, hide_index=True,
+        column_config={
+            "Contracted tons": tons_fmt, "Priced tons": tons_fmt,
+            "Weighted $/ton": money_fmt, "Unweighted $/ton": money_fmt,
+            "Contract value ($)": value_fmt,
+        },
     )
-    e3.download_button(
-        "Export line items (CSV)", r.to_csv(index=False).encode(),
-        "salt_line_items.csv", "text/csv", width="stretch",
+
+    st.subheader("Line items")
+    st.caption("One row per Pennsylvania county or Michigan drop point.")
+    st.dataframe(
+        line_items, width="stretch", height=360, hide_index=True,
+        column_config={
+            "Contracted tons": tons_fmt, "Price $/ton": money_fmt,
+            "Extended value ($)": value_fmt,
+        },
     )
-    e4.download_button(
-        "Export briefing pack (Excel)", excel_bytes(show, s, r),
-        "salt_contract_briefing.xlsx",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        width="stretch",
-    )
-    full = os.path.join(OUT_DIR, "salt_contract_tracker.xlsx")
-    if os.path.exists(full):
-        with open(full, "rb") as fh:
-            st.download_button(
-                "Full unfiltered workbook (Excel)", fh.read(),
-                "salt_contract_tracker.xlsx",
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            )
