@@ -1,0 +1,80 @@
+# Durable refresh: runs on GitHub, not on a laptop that may be asleep in June.
+#
+# Daily during the June–August award window, Mondays otherwise. A run that
+# finds nothing new is cheap (content-hashed downloads, checkpointed SID scan).
+# Set repository secrets:
+#   SALTTRACKER_CONTACT       mailbox or repo URL put in the crawler User-Agent
+#   SALTTRACKER_WEBHOOK_URL   Slack/Teams/generic POST for new-season alerts
+#   SALTTRACKER_ALERT_EMAIL   optional, requires the SMTP_* secrets below
+#   SALTTRACKER_SMTP_HOST / SALTTRACKER_SMTP_USER / SALTTRACKER_SMTP_PASS
+name: Refresh salt contracts
+
+on:
+  schedule:
+    # 11:15 UTC ≈ 07:15 Eastern during EDT (the June–August window).
+    - cron: "15 11 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: pip install -r requirements.txt
+
+      - name: Decide how far to crawl
+        id: window
+        run: |
+          month=$(date -u +%m)
+          dow=$(date -u +%u)
+          if [ "$month" = "06" ] || [ "$month" = "07" ] || [ "$month" = "08" ]; then
+            echo "peak=1" >> "$GITHUB_OUTPUT"
+            echo "scan=1" >> "$GITHUB_OUTPUT"
+          elif [ "$dow" = "1" ]; then
+            echo "peak=0" >> "$GITHUB_OUTPUT"
+            echo "scan=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "peak=0" >> "$GITHUB_OUTPUT"
+            echo "scan=0" >> "$GITHUB_OUTPUT"
+            echo "Off-season weekday — skip. Re-run Monday or via workflow_dispatch."
+          fi
+
+      - name: Refresh
+        if: steps.window.outputs.scan == '1' || github.event_name == 'workflow_dispatch'
+        env:
+          SALTTRACKER_CONTACT: ${{ secrets.SALTTRACKER_CONTACT }}
+          SALTTRACKER_WEBHOOK_URL: ${{ secrets.SALTTRACKER_WEBHOOK_URL }}
+          SALTTRACKER_ALERT_EMAIL: ${{ secrets.SALTTRACKER_ALERT_EMAIL }}
+          SALTTRACKER_SMTP_HOST: ${{ secrets.SALTTRACKER_SMTP_HOST }}
+          SALTTRACKER_SMTP_USER: ${{ secrets.SALTTRACKER_SMTP_USER }}
+          SALTTRACKER_SMTP_PASS: ${{ secrets.SALTTRACKER_SMTP_PASS }}
+          SALTTRACKER_RPS: "2"
+        run: |
+          extra=()
+          if [ "${{ steps.window.outputs.peak }}" != "1" ]; then
+            extra+=(--no-archive)
+          fi
+          python scripts/refresh.py "${extra[@]}"
+
+      - name: Persist outputs
+        if: steps.window.outputs.scan == '1' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "salttracker-bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/output data/watch_state.json data/alerts.jsonl data/manifest.json data/refresh_log.jsonl data/interim/pa_sid_scan.json || true
+          if git diff --cached --quiet; then
+            echo "No dataset change"
+          else
+            git commit -m "Refresh contract dataset $(date -u +%Y-%m-%d)"
+            git push
+          fi

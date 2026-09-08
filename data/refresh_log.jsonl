@@ -1,0 +1,11 @@
+{"event": "build", "status": "ok", "rows": 6344, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T18:29:45"}
+{"event": "build", "status": "ok", "rows": 7330, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T18:40:23"}
+{"event": "build", "status": "ok", "rows": 8326, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T18:57:41"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:03:10"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:04:06"}
+{"event": "acquire", "candidates": 16, "new": 5, "unchanged": 11, "ts": "2026-09-08T19:05:24"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:05:34"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:06:03"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:06:20"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:19:41"}
+{"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:20:32"}

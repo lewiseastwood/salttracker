@@ -1,0 +1,16 @@
+.venv/
+.tools/
+.env
+.env.*
+*.xlsx~
+__pycache__/
+.pytest_cache/
+*.pyc
+.DS_Store
+data/logs/
+data/interim/parse_cache/
+data/raw/
+data/interim/mi_page.html
+data/interim/pa_cdx.json
+*.pdf
+!data/output/

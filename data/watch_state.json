@@ -1,0 +1,55 @@
+{
+  "coverage": {
+    "MI": [
+      2022,
+      2023,
+      2024,
+      2025,
+      2026,
+      2027
+    ],
+    "PA": [
+      2022,
+      2023,
+      2024,
+      2025,
+      2026,
+      2027
+    ]
+  },
+  "documents": [
+    "MI_FY2027_CompassMinerals_260000000713.pdf",
+    "MI_FY2027_DetroitSalt_260000000712.pdf",
+    "PA_Award_NOA_6100048201.pdf",
+    "PA_ChangeNotice_4600016539_Morton.pdf",
+    "PA_FY2025_COSTARS.pdf",
+    "PA_FY2026_COSTARS_6100053321.pdf",
+    "PA_FY2027_COSTARS_6100065611.pdf",
+    "PA_bidsheet_FY2023_6100056192.pdf",
+    "PA_bidsheet_FY2026_6100063746.pdf",
+    "PA_bidsheet_FYx_6100053321.pdf",
+    "PA_bidsheet_FYx_6100053321_2.pdf",
+    "PA_bidsheet_FYx_6100065611.pdf",
+    "PA_estimates_FY2022_6100053321.xlsx",
+    "PA_estimates_FY2023_6100056192.pdf",
+    "PA_estimates_FY2026_6100063746.pdf",
+    "PA_estimates_FYx_6100065611.pdf"
+  ],
+  "last_run": "2026-09-08T19:20:32",
+  "vendors": {
+    "MI": [
+      "Cargill",
+      "Compass Minerals",
+      "Detroit Salt"
+    ],
+    "PA": [
+      "American Rock Salt",
+      "Cargill",
+      "Compass Minerals",
+      "Eastern Salt",
+      "Morton Salt",
+      "Riverside Construction Materials",
+      "Unattributed"
+    ]
+  }
+}
