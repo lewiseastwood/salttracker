@@ -80,8 +80,21 @@ def _periods(df: pd.DataFrame) -> list[str]:
     return list(dict.fromkeys(df.sort_values("period_sort")["period"].tolist()))
 
 
+def _quarter_tick_label(period: str) -> str:
+    """Show Q1–Q4 on the axis. Year sits on Q1 so later quarters stay readable."""
+    label = str(period)
+    if " Q" not in label:
+        return label
+    fy_part, q_part = label.replace("FY", "").split()
+    fy = fy_part.strip()
+    q = q_part.strip()
+    if q == "Q1":
+        return f"Q1 '{fy[-2:]}"
+    return q
+
+
 def _period_xaxis(periods: list[str], grain: str, tickfont_size: int | None = None) -> dict:
-    """Quarterly axis keeps Q2–Q4 slots but only labels Q1, so the year reads once."""
+    """Annual ticks stay FY 2022. Quarter ticks are Q1 '22, Q2, Q3, Q4."""
     axis = dict(
         categoryorder="array",
         categoryarray=periods,
@@ -93,15 +106,14 @@ def _period_xaxis(periods: list[str], grain: str, tickfont_size: int | None = No
         axis["tickfont"] = dict(size=tickfont_size)
     if grain != "quarter":
         return axis
-    ticktext = []
-    for p in periods:
-        label = str(p)
-        if label.endswith("Q1"):
-            fy = label.replace("FY", "").split()[0]
-            ticktext.append(f"FY {fy}")
-        else:
-            ticktext.append("")
-    axis.update(tickmode="array", tickvals=periods, ticktext=ticktext)
+    ticktext = [_quarter_tick_label(p) for p in periods]
+    axis.update(
+        tickmode="array",
+        tickvals=periods,
+        ticktext=ticktext,
+        tickangle=-45,
+        tickfont=dict(size=tickfont_size or 10),
+    )
     return axis
 
 
@@ -268,7 +280,7 @@ def volume_price_comparison(
             ),
             row=r, col=c, secondary_y=True,
         )
-        fig.update_xaxes(**_period_xaxis(periods, grain, tickfont_size=11), row=r, col=c)
+        fig.update_xaxes(**_period_xaxis(periods, grain, tickfont_size=9 if grain == "quarter" else 11), row=r, col=c)
         fig.update_yaxes(
             range=ton_axis["range"],
             tickvals=ton_axis["tickvals"],
@@ -304,8 +316,8 @@ def volume_price_comparison(
     fig = style(fig, height=460 * nrows + 90)
     fig.update_annotations(font=dict(size=14, color=NAVY, family="Georgia, 'Times New Roman', serif"))
     fig.update_layout(
-        legend=_legend_below(-0.28 if nrows == 1 else -0.14),
-        margin=dict(l=64, r=72, t=88, b=96),
+        legend=_legend_below(-0.32 if nrows == 1 else -0.16),
+        margin=dict(l=64, r=72, t=88, b=128 if grain == "quarter" else 96),
     )
     return fig
 
@@ -452,7 +464,7 @@ def price_timeseries(
             line=dict(color=STATE_COLORS.get(code, "#1B3A4B"), width=2.5),
             marker=dict(size=8),
             connectgaps=True,
-            hovertemplate="%{y:$,.2f}/ton<extra>%{fullData.name}</extra>",
+            hovertemplate="%{x}<br>%{y:$,.2f}/ton<extra>%{fullData.name}</extra>",
         ))
     fig.update_yaxes(title="USD per short ton", tickprefix="$", tickformat=",.0f", title_standoff=18, automargin=True)
     fig.update_xaxes(**_period_xaxis(periods, grain))
@@ -461,8 +473,8 @@ def price_timeseries(
     )
     fig = style(fig, height=480)
     fig.update_layout(
-        legend=_legend_below(-0.20),
-        margin=dict(l=88, r=24, t=64, b=88),
+        legend=_legend_below(-0.22 if grain == "quarter" else -0.20),
+        margin=dict(l=88, r=24, t=64, b=112 if grain == "quarter" else 88),
     )
     return fig
 
@@ -476,7 +488,7 @@ def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figur
         fig.add_trace(go.Bar(
             x=g["period"], y=_y_none(g["contracted_tons"]), name=STATE_NAMES.get(code, code),
             marker_color=STATE_COLORS.get(code, "#1B3A4B"),
-            hovertemplate="%{y:,.0f} tons<extra>%{fullData.name}</extra>",
+            hovertemplate="%{x}<br>%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
     tons = pd.to_numeric(state_df["contracted_tons"], errors="coerce")
     fig.update_yaxes(title="Contracted tons", **_ton_ticks(tons.max() if len(tons) else 1))
@@ -487,8 +499,8 @@ def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figur
     )
     fig = style(fig, height=480)
     fig.update_layout(
-        legend=_legend_below(-0.20),
-        margin=dict(l=88, r=24, t=64, b=88),
+        legend=_legend_below(-0.22 if grain == "quarter" else -0.20),
+        margin=dict(l=88, r=24, t=64, b=112 if grain == "quarter" else 88),
     )
     return fig
 
@@ -507,7 +519,7 @@ def vendor_price(
             line=dict(color=VENDOR_COLORS.get(vendor, "#1B3A4B"), width=2.2),
             marker=dict(size=7),
             connectgaps=True,
-            hovertemplate="%{y:$,.2f}/ton<extra>%{fullData.name}</extra>",
+            hovertemplate="%{x}<br>%{y:$,.2f}/ton<extra>%{fullData.name}</extra>",
         ))
     fig.update_yaxes(title="USD per short ton", tickprefix="$", title_standoff=18, automargin=True)
     fig.update_xaxes(**_period_xaxis(periods, grain))
@@ -516,8 +528,8 @@ def vendor_price(
     )
     fig = style(fig, height=500)
     fig.update_layout(
-        legend=_legend_below(-0.22),
-        margin=dict(l=88, r=24, t=64, b=96),
+        legend=_legend_below(-0.24 if grain == "quarter" else -0.22),
+        margin=dict(l=88, r=24, t=64, b=120 if grain == "quarter" else 96),
     )
     return fig
 
@@ -532,7 +544,7 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
         fig.add_trace(go.Bar(
             x=vg["period"], y=_y_none(vg["contracted_tons"]), name=_short(vendor),
             marker_color=VENDOR_COLORS.get(vendor, "#9AA3B2"),
-            hovertemplate="%{y:,.0f} tons<extra>%{fullData.name}</extra>",
+            hovertemplate="%{x}<br>%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
     tons = pd.to_numeric(g["contracted_tons"], errors="coerce") if not g.empty else pd.Series(dtype=float)
     fig.update_yaxes(title="Contracted tons", **_ton_ticks(tons.max() if len(tons) else 1))
@@ -543,8 +555,8 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
     )
     fig = style(fig, height=500)
     fig.update_layout(
-        legend=_legend_below(-0.22),
-        margin=dict(l=88, r=24, t=64, b=96),
+        legend=_legend_below(-0.24 if grain == "quarter" else -0.22),
+        margin=dict(l=88, r=24, t=64, b=120 if grain == "quarter" else 96),
     )
     return fig
 

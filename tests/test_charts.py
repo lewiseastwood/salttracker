@@ -123,8 +123,11 @@ def test_quarter_price_lines_connect_across_empty_quarters():
     assert max(nonempty) >= 2
     ticktext = list(fig.layout.xaxis.ticktext or [])
     assert ticktext
-    assert any(t.startswith("FY ") for t in ticktext)
-    assert any(t == "" for t in ticktext)
+    assert "Q2" in ticktext
+    assert "Q3" in ticktext
+    assert "Q4" in ticktext
+    assert any(t.startswith("Q1 '") for t in ticktext)
+    assert not any(t.startswith("FY ") for t in ticktext)
 
     pa = vendor[vendor["state"] == "PA"]
     cmp_fig = charts.volume_price_comparison(pa, "weighted_avg_price", "quarter")
