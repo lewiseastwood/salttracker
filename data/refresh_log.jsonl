@@ -11,3 +11,5 @@
 {"event": "build", "status": "ok", "rows": 7121, "states": ["MI", "PA"], "fiscal_years": [2022, 2023, 2024, 2025, 2026, 2027], "ts": "2026-09-08T19:20:32"}
 {"event": "acquire", "candidates": 14, "new": 14, "unchanged": 0, "michigan_listing": "unfetched", "michigan_listed": 0, "ts": "2026-09-09T13:16:00"}
 {"event": "build", "status": "discovery-failed", "listing": "unfetched", "missed": [], "ts": "2026-09-09T13:16:00"}
+{"event": "acquire", "candidates": 8, "new": 8, "unchanged": 0, "michigan_listing": "ok", "michigan_listed": 2, "pennsylvania_listing": "ok", "pennsylvania_listed": 6, "ts": "2026-09-09T13:34:03"}
+{"event": "build", "status": "ok", "rows": 1568, "states": ["MI", "PA"], "fiscal_years": [2023, 2024, 2025, 2026, 2027], "ts": "2026-09-09T13:35:04"}

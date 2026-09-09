@@ -2,3 +2,8 @@
 {"ts": "2026-09-08T19:06:20", "kind": "new-season", "state": "PA", "fiscal_year": 2027, "detail": "PA FY2027 appeared in the data for the first time"}
 {"ts": "2026-09-08T19:06:20", "kind": "new-supplier", "state": "PA", "detail": "PA: Riverside Construction Materials not seen in earlier runs"}
 {"ts": "2026-09-09T13:15:46", "kind": "listing-unfetched", "state": "MI", "detail": "Michigan DTMB salt page could not be fetched \u2014 next year's contract number is discovered from that listing, not from a hardcoded file"}
+{"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_2025-2026_sodium_chloride_road_salt_season_contract.pdf"}
+{"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_2026-2027_sodium_chloride_road_salt_season_contract.pdf"}
+{"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_sodium-chloride-road_salt-2022-2023-season-contract_change-order-4.pdf"}
+{"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_sodium_chloride_road_salt_2023-2024_season_contract.pdf"}
+{"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_sodium_chloride_road_salt_2024-2025_season_contract.pdf"}
