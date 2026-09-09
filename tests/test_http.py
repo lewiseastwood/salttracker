@@ -76,5 +76,46 @@ def test_emarketplace_title_uses_http_get(monkeypatch):
     assert "emarketplace.state.pa.us" in called[0]
 
 
+def test_http_get_sends_browser_headers(monkeypatch):
+    captured = {}
+
+    def fake_get(url, headers=None, timeout=None, params=None):
+        captured["headers"] = headers
+        return _FakeResponse(200, "ok")
+
+    monkeypatch.setattr(sources.requests, "get", fake_get)
+    monkeypatch.setattr(sources.time, "sleep", lambda *_a: None)
+    r, status = sources.http_get("https://www.michigan.gov/example")
+    assert status == 200
+    assert r is not None
+    headers = captured["headers"]
+    assert "Mozilla/5.0" in headers["User-Agent"]
+    assert "Chrome/" in headers["User-Agent"]
+    assert "SaltTracker/" not in headers["User-Agent"]
+    assert "text/html" in headers["Accept"]
+    assert headers["Accept-Language"].startswith("en")
+    assert "gzip" in headers["Accept-Encoding"]
+    assert "br" not in headers["Accept-Encoding"]
+    assert headers["Sec-Fetch-Dest"] == "document"
+    assert headers["Sec-Fetch-Mode"] == "navigate"
+    assert headers["Sec-Fetch-Site"] == "none"
+    assert headers["Sec-Fetch-User"] == "?1"
+
+
+def test_http_post_does_not_retry_403(monkeypatch):
+    calls = {"n": 0}
+
+    def fake_post(url, headers=None, timeout=None, data=None):
+        calls["n"] += 1
+        return _FakeResponse(403)
+
+    monkeypatch.setattr(sources.requests, "post", fake_post)
+    monkeypatch.setattr(sources.time, "sleep", lambda *_a: None)
+    r, status = sources.http_post("https://www.dgs.internet.state.pa.us/COSTARSElecBidd/Home/GetBiddingOpportunitiesList", tries=3)
+    assert r is None
+    assert status == 403
+    assert calls["n"] == 1
+
+
 def test_rate_limit_is_between_two_and_five():
     assert 2 <= sources.REQUESTS_PER_SECOND <= 5

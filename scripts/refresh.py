@@ -152,34 +152,51 @@ def parse_failure_alerts(yields: list[dict]) -> list[dict]:
     return alerts
 
 
-def listing_failure_alerts(status: str) -> list[dict]:
-    if status == "unfetched":
-        return [{
+def listing_failure_alerts(mi_status: str, pa_status: str = "ok") -> list[dict]:
+    alerts: list[dict] = []
+    if mi_status == "unfetched":
+        alerts.append({
             "kind": "listing-unfetched",
             "state": "MI",
             "detail": ("Michigan DTMB salt page could not be fetched — next year's "
                        "contract number is discovered from that listing, not from "
                        "a hardcoded file"),
-        }]
-    if status == "empty":
-        return [{
+        })
+    elif mi_status == "empty":
+        alerts.append({
             "kind": "listing-empty",
             "state": "MI",
             "detail": ("Michigan DTMB listing had no contract PDFs — last year's "
                        "number may have been delisted and the new one was not found"),
-        }]
-    return []
+        })
+    if pa_status == "unfetched":
+        alerts.append({
+            "kind": "listing-unfetched",
+            "state": "PA",
+            "detail": ("Pennsylvania COSTARS / eMarketplace live listing could not "
+                       "be fetched — seed URLs do not count as discovery"),
+        })
+    elif pa_status == "empty":
+        alerts.append({
+            "kind": "listing-empty",
+            "state": "PA",
+            "detail": ("Pennsylvania live listing had no salt documents — seed URLs "
+                       "do not count as discovery"),
+        })
+    return alerts
 
 
 def acquire(include_archive: bool, scan_emarketplace: bool = True
-            ) -> tuple[list[sources.Doc], str, list[sources.Doc]]:
+            ) -> tuple[list[sources.Doc], str, list[sources.Doc], str, list[sources.Doc]]:
     print("Discovering published contract documents...")
-    mi_listed, listing = sources.fetch_michigan_listing()
-    print(f"  Michigan DTMB listing: {listing} ({len(mi_listed)} PDF link(s))")
-    pa = sources.discover_pennsylvania(state_dir=INTERIM, scan_emarketplace=scan_emarketplace)
-    docs = list(mi_listed) + pa
+    mi_listed, mi_listing = sources.fetch_michigan_listing()
+    print(f"  Michigan DTMB listing: {mi_listing} ({len(mi_listed)} PDF link(s))")
+    pa_listed, pa_listing = sources.fetch_pennsylvania_live(
+        state_dir=INTERIM, scan_emarketplace=scan_emarketplace)
+    print(f"  Pennsylvania live listing: {pa_listing} ({len(pa_listed)} document(s); seeds ignored)")
+    docs = list(mi_listed) + list(pa_listed)
     # Wayback recovers overwritten history. It is not a stand-in for today's listing.
-    if include_archive and listing == "ok":
+    if include_archive and mi_listing == "ok":
         docs += sources.discover_michigan_archived()
     docs = sources.unique_docs(docs)
     print(f"  {len(docs)} candidate documents")
@@ -199,8 +216,9 @@ def acquire(include_archive: bool, scan_emarketplace: bool = True
     print(f"  downloaded: {new} new / {unchanged} unchanged")
     sources.write_manifest(fetched, MANIFEST)
     log({"event": "acquire", "candidates": len(docs), "new": new, "unchanged": unchanged,
-         "michigan_listing": listing, "michigan_listed": len(mi_listed)})
-    return fetched, listing, mi_listed
+         "michigan_listing": mi_listing, "michigan_listed": len(mi_listed),
+         "pennsylvania_listing": pa_listing, "pennsylvania_listed": len(pa_listed)})
+    return fetched, mi_listing, mi_listed, pa_listing, pa_listed
 
 
 def local_docs() -> tuple[dict[str, str | None], list[str], list[str]]:
@@ -270,26 +288,39 @@ def main() -> int:
 
 def _run(args: argparse.Namespace, stamp: str) -> int:
     docs: list[sources.Doc] = []
-    listing = "skipped"
+    mi_listing = "skipped"
+    pa_listing = "skipped"
     listed_mi: list[sources.Doc] = []
+    listed_pa: list[sources.Doc] = []
     if not args.no_download:
-        docs, listing, listed_mi = acquire(include_archive=not args.no_archive,
-                                           scan_emarketplace=not args.no_scan)
-        listing_alerts = listing_failure_alerts(listing)
+        docs, mi_listing, listed_mi, pa_listing, listed_pa = acquire(
+            include_archive=not args.no_archive,
+            scan_emarketplace=not args.no_scan)
+        listing_alerts = listing_failure_alerts(mi_listing, pa_listing)
         fetched_urls = {d.url for d in docs}
-        missed = [d for d in listed_mi if d.url not in fetched_urls]
-        if listing == "ok" and missed:
+        missed_mi = [d for d in listed_mi if d.url not in fetched_urls]
+        missed_pa = [d for d in listed_pa if d.url not in fetched_urls]
+        if mi_listing == "ok" and missed_mi:
             listing_alerts.append({
                 "kind": "download-failed",
                 "state": "MI",
                 "detail": ("Michigan listing named "
-                           + ", ".join(d.name for d in missed)
+                           + ", ".join(d.name for d in missed_mi)
+                           + " but the file(s) did not download"),
+            })
+        if pa_listing == "ok" and missed_pa:
+            listing_alerts.append({
+                "kind": "download-failed",
+                "state": "PA",
+                "detail": ("Pennsylvania listing named "
+                           + ", ".join(d.name for d in missed_pa)
                            + " but the file(s) did not download"),
             })
         if listing_alerts:
-            print("ERROR: Michigan live listing did not yield current contract PDFs.")
-            log({"event": "build", "status": "discovery-failed", "listing": listing,
-                 "missed": [d.name for d in missed]})
+            print("ERROR: live listing did not yield current contract PDFs.")
+            log({"event": "build", "status": "discovery-failed",
+                 "michigan_listing": mi_listing, "pennsylvania_listing": pa_listing,
+                 "missed": [d.name for d in missed_mi + missed_pa]})
             stamp_run(stamp, "discovery-failed")
             raise_alerts(listing_alerts, stamp)
             return 1

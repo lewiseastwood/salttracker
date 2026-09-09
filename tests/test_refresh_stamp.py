@@ -71,7 +71,7 @@ def test_empty_dtmb_listing_is_discovery_failed_not_ok(tmp_path, monkeypatch):
     refresh = _load_refresh()
     _isolate(refresh, tmp_path, monkeypatch, ["refresh.py", "--no-archive", "--no-scan"])
     monkeypatch.setattr(refresh.sources, "fetch_michigan_listing", lambda: ([], "empty"))
-    monkeypatch.setattr(refresh.sources, "discover_pennsylvania", lambda **_k: [])
+    monkeypatch.setattr(refresh.sources, "fetch_pennsylvania_live", lambda **_k: ([], "ok"))
     monkeypatch.setattr(refresh.sources, "discover_michigan_archived", lambda: [])
     monkeypatch.setattr(refresh.sources, "download", lambda *_a, **_k: None)
     monkeypatch.setattr(refresh.sources, "write_manifest", lambda *_a, **_k: None)
@@ -88,7 +88,7 @@ def test_unfetched_dtmb_listing_is_discovery_failed(tmp_path, monkeypatch):
     refresh = _load_refresh()
     _isolate(refresh, tmp_path, monkeypatch, ["refresh.py", "--no-archive", "--no-scan"])
     monkeypatch.setattr(refresh.sources, "fetch_michigan_listing", lambda: ([], "unfetched"))
-    monkeypatch.setattr(refresh.sources, "discover_pennsylvania", lambda **_k: [])
+    monkeypatch.setattr(refresh.sources, "fetch_pennsylvania_live", lambda **_k: ([], "ok"))
     monkeypatch.setattr(refresh.sources, "discover_michigan_archived", lambda: [])
     monkeypatch.setattr(refresh.sources, "download", lambda *_a, **_k: None)
     monkeypatch.setattr(refresh.sources, "write_manifest", lambda *_a, **_k: None)
@@ -148,7 +148,7 @@ def test_listed_michigan_pdf_that_does_not_download_is_not_ok(tmp_path, monkeypa
         contract_no="270000000801",
     )]
     monkeypatch.setattr(refresh.sources, "fetch_michigan_listing", lambda: (listed, "ok"))
-    monkeypatch.setattr(refresh.sources, "discover_pennsylvania", lambda **_k: [])
+    monkeypatch.setattr(refresh.sources, "fetch_pennsylvania_live", lambda **_k: ([], "ok"))
     monkeypatch.setattr(refresh.sources, "download", lambda *_a, **_k: None)
     monkeypatch.setattr(refresh.sources, "write_manifest", lambda *_a, **_k: None)
 
@@ -156,6 +156,33 @@ def test_listed_michigan_pdf_that_does_not_download_is_not_ok(tmp_path, monkeypa
     written = json.loads((tmp_path / "watch_state.json").read_text())
     assert written["last_status"] == "discovery-failed"
     assert "download-failed" in (tmp_path / "alerts.jsonl").read_text()
+
+
+def test_empty_pa_listing_is_discovery_failed_even_when_michigan_ok(tmp_path, monkeypatch):
+    refresh = _load_refresh()
+    _isolate(refresh, tmp_path, monkeypatch, ["refresh.py", "--no-archive", "--no-scan"])
+    listed = [refresh.sources.Doc(
+        state="MI", name="MI_FY2028_270000000801.pdf",
+        url="https://www.michigan.gov/example/270000000801.pdf",
+        contract_no="270000000801",
+    )]
+
+    def fake_download(doc, *_a, **_k):
+        doc.path = str(tmp_path / doc.name)
+        return doc
+
+    monkeypatch.setattr(refresh.sources, "fetch_michigan_listing", lambda: (listed, "ok"))
+    monkeypatch.setattr(refresh.sources, "fetch_pennsylvania_live", lambda **_k: ([], "empty"))
+    monkeypatch.setattr(refresh.sources, "download", fake_download)
+    monkeypatch.setattr(refresh.sources, "write_manifest", lambda *_a, **_k: None)
+
+    assert refresh.main() == 1
+    written = json.loads((tmp_path / "watch_state.json").read_text())
+    assert written["last_status"] == "discovery-failed"
+    alerts = (tmp_path / "alerts.jsonl").read_text()
+    assert "listing-empty" in alerts
+    assert "Pennsylvania" in alerts
+    assert "seed" in alerts.lower()
 
 
 def test_parse_failure_end_to_end_strip_reads_parse_failed_not_stale(

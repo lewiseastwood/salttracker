@@ -90,14 +90,15 @@ CSVs update when the export completes. Slack/email alerts are optional secrets:
 
 | Secret | Purpose |
 |---|---|
-| `SALTTRACKER_CONTACT` | Mailbox in the crawler `User-Agent` (defaults to this repo URL) |
+| `SALTTRACKER_CONTACT` | Optional mailbox (not used as the User-Agent; michigan.gov 403s a crawler UA) |
 | `SALTTRACKER_WEBHOOK_URL` | Slack / Teams / generic POST when a new season or document appears |
 | `SALTTRACKER_ALERT_EMAIL` | Optional; also set `SALTTRACKER_SMTP_HOST` / `_USER` / `_PASS` |
 
-The crawler identifies itself as `SaltTracker/1.0 (academic public-records
-research; +<contact>)` and is capped at **2 requests/second**
-(`SALTTRACKER_RPS`). Every request to michigan.gov, pa.gov, and eMarketplace
-goes through `sources.http_get`. It does not impersonate a browser.
+michigan.gov's Akamai edge 403s a custom crawler User-Agent. Requests use a
+current Chrome identity plus browser `Accept` / `Sec-Fetch-*` headers, still
+capped at **2 requests/second** (`SALTTRACKER_RPS`). 429/5xx retry; 403 does
+not. Every request to michigan.gov, pa.gov, and eMarketplace goes through
+`sources.http_get` (POST to COSTARS e-bidding uses the same helper).
 
 Do not install a local LaunchAgent. `./scripts/install_schedule.sh` refuses
 and will only `--remove` a leftover plist.

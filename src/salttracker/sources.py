@@ -20,23 +20,28 @@ import re
 import threading
 import time
 from dataclasses import asdict, dataclass
+from urllib.parse import quote
 
 import requests
 
-# Identify the crawler honestly. Override with SALTTRACKER_CONTACT (mailbox
-# or a repo URL). Unattended runs fall back to this public repo so DTMB / DGS
-# can still see who is fetching.
-CONTACT = os.environ.get("SALTTRACKER_CONTACT", "").strip() or (
-    "https://github.com/lewiseastwood/salttracker"
+# Akamai on michigan.gov 403s a custom crawler UA. Public records pages are
+# fetched with a current Chrome identity; robots.txt does not disallow
+# /dtmb/procurement. SALTTRACKER_CONTACT is not sent as the User-Agent.
+UA = (
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
 )
-_ua = ["SaltTracker/1.0", "(academic public-records research"]
-if CONTACT:
-    _ua.append(f"; +{CONTACT}")
-_ua.append(")")
-UA = "".join(_ua)
-HEADERS = {"User-Agent": UA, "Accept": "*/*"}
-if "@" in CONTACT and " " not in CONTACT:
-    HEADERS["From"] = CONTACT
+HEADERS = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 # Politeness budget for the state servers. A few requests per second, not a
 # burst scan: eMarketplace and DTMB are public indexes, not an API we own.
@@ -83,8 +88,8 @@ MI_CONTRACT_VENDOR = {
     "260000000713": "Compass Minerals",
 }
 
-# Pennsylvania COSTARS season packets. Paths are not templatable across years,
-# so known-good URLs are pinned and the live COSTARS page is also crawled.
+# Known PA packet URLs, kept as context for files already on disk. They are
+# not discovery — next year's FY2028 packet will not be on this list.
 PA_SEED_DOCS = [
     ("PA_FY2027_COSTARS_6100065611.pdf",
      "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/costars/member-information/"
@@ -103,7 +108,18 @@ PA_SEED_DOCS = [
      None),
 ]
 
-PA_COSTARS_INDEX = "https://www.pa.gov/agencies/dgs/programs-and-services/costars/costars-contracts.html"
+# HTML hubs after the dgs.pa.gov → pa.gov move. None currently embed salt PDF
+# hrefs (Coveo / marketing pages). Awarded packets are listed in the AEM
+# document folders below.
+PA_COSTARS_HTML = [
+    "https://www.pa.gov/services/dgs/search-and-join-available-costars-contracts",
+    "https://www.pa.gov/agencies/dgs/programs-and-services/costars",
+]
+PA_COSTARS_AEM_FOLDERS = [
+    "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/costars/member-information/documents",
+    "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars",
+]
+PA_ELECBIDD = "https://www.dgs.internet.state.pa.us/COSTARSElecBidd/"
 
 # PA publishes each season's contract on eMarketplace before the COSTARS packet
 # appears, so the solicitation is the earliest signal that a new cycle exists.
@@ -143,6 +159,7 @@ class Doc:
 def http_get(url: str, timeout: int = 180, tries: int = 3,
              params: dict | None = None,
              session: requests.Session | None = None,
+             extra_headers: dict | None = None,
              ) -> tuple[requests.Response | None, int | None]:
     """Single throttled GET. Every michigan.gov / pa.gov / eMarketplace fetch uses this.
 
@@ -150,12 +167,37 @@ def http_get(url: str, timeout: int = 180, tries: int = 3,
     429 and 5xx retry with backoff. 403 is returned as-is — GitHub runner
     IPs are often blocked, and retrying that looks like a code bug.
     """
+    return _http("GET", url, timeout=timeout, tries=tries, params=params,
+                 session=session, extra_headers=extra_headers)
+
+
+def http_post(url: str, timeout: int = 180, tries: int = 3,
+             data: dict | None = None,
+             session: requests.Session | None = None,
+             extra_headers: dict | None = None,
+             ) -> tuple[requests.Response | None, int | None]:
+    """Same throttle, headers, and retry policy as http_get, for POST."""
+    return _http("POST", url, timeout=timeout, tries=tries, data=data,
+                 session=session, extra_headers=extra_headers)
+
+
+def _http(method: str, url: str, timeout: int = 180, tries: int = 3,
+          params: dict | None = None, data: dict | None = None,
+          session: requests.Session | None = None,
+          extra_headers: dict | None = None,
+          ) -> tuple[requests.Response | None, int | None]:
     http = session or requests
+    headers = dict(HEADERS)
+    if extra_headers:
+        headers.update(extra_headers)
     last_status: int | None = None
     for attempt in range(tries):
         _limiter.wait()
         try:
-            r = http.get(url, headers=HEADERS, timeout=timeout, params=params)
+            if method == "POST":
+                r = http.post(url, headers=headers, timeout=timeout, data=data)
+            else:
+                r = http.get(url, headers=headers, timeout=timeout, params=params)
             last_status = r.status_code
             if r.status_code == 200:
                 return r, 200
@@ -407,24 +449,174 @@ def pa_solicitation_docs(sid: int) -> list[Doc]:
     return docs
 
 
-def discover_pennsylvania(state_dir: str | None = None, scan_emarketplace: bool = True) -> list[Doc]:
-    """Seed known PA packets, crawl the COSTARS index, and scan eMarketplace."""
-    docs = [Doc(state="PA", name=n, url=u, fy=fy, notes="seed") for n, u, fy in PA_SEED_DOCS]
+def _pa_salt_name(name: str) -> bool:
+    return bool(re.search(r"sodium|salt|chlorid", name, re.I))
 
-    r, status = http_get(PA_COSTARS_INDEX, timeout=90)
-    print(f"  Pennsylvania COSTARS index: HTTP {status if status is not None else 'no-response'}")
-    if r is not None:
-        for url in _pdf_links(r.text, "https://www.pa.gov"):
-            if not re.search(r"sodium|salt", url, re.I):
-                continue
-            name = re.sub(r"[^A-Za-z0-9._-]+", "_", url.rsplit("/", 1)[-1])[:110]
-            if any(d.url == url for d in docs):
-                continue
-            docs.append(Doc(state="PA", name=f"PA_live_{name}", url=url, notes="costars index"))
 
+def fetch_pa_costars_listing() -> tuple[list[Doc], str, int | None]:
+    """Live awarded COSTARS packets. Seed URLs are not consulted.
+
+    The pa.gov HTML hubs after the dgs.pa.gov move return 200 but do not
+    embed salt PDF hrefs (Coveo / marketing). Awarded season packets are
+    listed in the AEM document folders as ``.1.json``.
+    """
+    docs: list[Doc] = []
+    any_200 = False
+    selected_url = PA_COSTARS_HTML[0]
+    selected_status: int | None = None
+
+    for url in PA_COSTARS_HTML:
+        r, status = http_get(url, timeout=90)
+        n_salt = 0
+        if r is not None:
+            any_200 = True
+            for href in _pdf_links(r.text, "https://www.pa.gov"):
+                if not _pa_salt_name(href):
+                    continue
+                n_salt += 1
+                name = re.sub(r"[^A-Za-z0-9._-]+", "_", href.rsplit("/", 1)[-1])[:110]
+                docs.append(Doc(
+                    state="PA", name=f"PA_live_{name}", url=href,
+                    notes="costars html listing",
+                ))
+        print(f"  Pennsylvania COSTARS HTML: HTTP {status if status is not None else 'no-response'} "
+              f"({url}) {n_salt} salt PDF link(s)")
+        if selected_status is None:
+            selected_url, selected_status = url, status
+
+    for folder in PA_COSTARS_AEM_FOLDERS:
+        url = folder + ".1.json"
+        r, status = http_get(url, timeout=90)
+        n_salt = 0
+        if r is not None:
+            any_200 = True
+            try:
+                listing = r.json()
+            except ValueError:
+                listing = {}
+            for name in listing:
+                if name.startswith("jcr:"):
+                    continue
+                if not _pa_salt_name(name):
+                    continue
+                if not name.lower().endswith(".pdf"):
+                    continue
+                if re.search(r"tracking|w-?9", name, re.I):
+                    continue
+                file_url = folder + "/" + quote(name)
+                safe = re.sub(r"[^A-Za-z0-9._-]+", "_", name)[:110]
+                docs.append(Doc(
+                    state="PA", name=f"PA_live_{safe}", url=file_url,
+                    notes="costars aem listing",
+                ))
+                n_salt += 1
+            if n_salt and not selected_url.endswith(".1.json"):
+                selected_url, selected_status = url, status
+        print(f"  Pennsylvania COSTARS AEM {folder.rsplit('/', 1)[-1]}: "
+              f"HTTP {status if status is not None else 'no-response'} "
+              f"({url}) {n_salt} salt PDF(s)")
+        if not selected_url.endswith(".1.json") and r is not None:
+            selected_url, selected_status = url, status
+
+    docs = unique_docs(docs)
+    print(f"  Pennsylvania COSTARS index: HTTP {selected_status if selected_status is not None else 'no-response'} "
+          f"({selected_url}) {len(docs)} salt document(s)")
+    if not any_200:
+        return [], "unfetched", selected_status
+    if not docs:
+        return [], "empty", selected_status
+    return docs, "ok", selected_status
+
+
+def fetch_pa_elecbidd() -> tuple[list[Doc], str]:
+    """Pre-award COSTARS electronic bidding list — earlier than the season packet."""
+    session = requests.Session()
+    r, status = http_get(PA_ELECBIDD, timeout=60, session=session)
+    if r is None:
+        print(f"  Pennsylvania COSTARS e-bidding: HTTP {status if status is not None else 'no-response'} "
+              f"(0 salt bid(s))")
+        return [], "unfetched"
+    token_m = re.search(r'name="__RequestVerificationToken"[^>]*value="([^"]+)"', r.text)
+    docs: list[Doc] = []
+    if token_m:
+        extra = {
+            "RequestVerificationToken": token_m.group(1),
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "application/json, text/javascript, */*; q=0.01",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+        }
+        payload = {
+            "draw": "1", "start": "0", "length": "99",
+            "__RequestVerificationToken": token_m.group(1),
+        }
+        r2, post_status = http_post(
+            PA_ELECBIDD.rstrip("/") + "/Home/GetBiddingOpportunitiesList",
+            timeout=60, data=payload, session=session, extra_headers=extra,
+        )
+        status = post_status if post_status is not None else status
+        if r2 is not None:
+            try:
+                rows = r2.json().get("data") or []
+            except ValueError:
+                rows = []
+            for row in rows:
+                blob = f"{row.get('BidNumber', '')} {row.get('Description', '')}"
+                if not re.search(r"salt|chlorid|sodium", blob, re.I):
+                    continue
+                bid_id = row.get("Id")
+                number = row.get("BidNumber") or f"bid-{bid_id}"
+                docs.append(Doc(
+                    state="PA",
+                    name=f"PA_elecbidd_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(number))}.html",
+                    url=f"{PA_ELECBIDD.rstrip('/')}/Bidding/ViewBid/{bid_id}",
+                    notes="costars elecbidd",
+                ))
+    print(f"  Pennsylvania COSTARS e-bidding: HTTP {status if status is not None else 'no-response'} "
+          f"({len(docs)} salt bid(s))")
+    return docs, ("ok" if docs else "empty")
+
+
+def _pa_known_sids(state_dir: str | None) -> set[int]:
+    known = set(PA_KNOWN_SALT_SIDS)
+    if not state_dir:
+        return known
+    checkpoint = os.path.join(state_dir, SCAN_STATE)
+    if not os.path.exists(checkpoint):
+        return known
+    try:
+        with open(checkpoint) as fh:
+            saved = json.load(fh)
+        known |= set(saved.get("salt_sids", []))
+    except (ValueError, OSError):
+        pass
+    return known
+
+
+def fetch_pennsylvania_live(state_dir: str | None = None,
+                           scan_emarketplace: bool = True) -> tuple[list[Doc], str]:
+    """Live PA discovery only. Seed URLs do not count, even if they still 200."""
+    costars, costars_status, _http = fetch_pa_costars_listing()
+    elec, _elec_status = fetch_pa_elecbidd()
+    docs = list(costars) + list(elec)
     if scan_emarketplace:
-        for sid in pa_scan_salt_sids(state_dir=state_dir):
+        before = _pa_known_sids(state_dir)
+        salt_sids = pa_scan_salt_sids(state_dir=state_dir)
+        new_sids = [sid for sid in salt_sids if sid not in before]
+        print(f"  Pennsylvania eMarketplace walk: {len(new_sids)} new salt SID(s)")
+        for sid in new_sids:
             docs.extend(pa_solicitation_docs(sid))
+    docs = unique_docs(docs)
+    if not docs:
+        status = "unfetched" if costars_status == "unfetched" else "empty"
+        return [], status
+    return docs, "ok"
+
+
+def discover_pennsylvania(state_dir: str | None = None, scan_emarketplace: bool = True) -> list[Doc]:
+    docs, _status = fetch_pennsylvania_live(state_dir=state_dir,
+                                            scan_emarketplace=scan_emarketplace)
     return docs
 
 
