@@ -1,3 +1,4 @@
 {"ts": "2026-09-08T19:06:20", "kind": "new-season", "state": "MI", "fiscal_year": 2027, "detail": "MI FY2027 appeared in the data for the first time"}
 {"ts": "2026-09-08T19:06:20", "kind": "new-season", "state": "PA", "fiscal_year": 2027, "detail": "PA FY2027 appeared in the data for the first time"}
 {"ts": "2026-09-08T19:06:20", "kind": "new-supplier", "state": "PA", "detail": "PA: Riverside Construction Materials not seen in earlier runs"}
+{"ts": "2026-09-09T13:15:46", "kind": "listing-unfetched", "state": "MI", "detail": "Michigan DTMB salt page could not be fetched \u2014 next year's contract number is discovered from that listing, not from a hardcoded file"}
