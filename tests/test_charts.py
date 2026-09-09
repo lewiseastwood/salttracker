@@ -41,6 +41,45 @@ def test_quarter_view_keeps_annual_totals():
     assert later["price"].isna().all()
 
 
+def test_riverside_bar_is_fy2027_not_fy2024():
+    vendor = pd.read_csv(VENDOR_CSV)
+    pa = vendor[vendor["state"] == "PA"]
+    fig = charts.volume_price_comparison(pa, "weighted_avg_price", "annual")
+    placed = []
+    for tr in fig.data:
+        if getattr(tr, "type", None) != "bar":
+            continue
+        for x, y in zip(tr.x, tr.y):
+            if y is not None and abs(float(y) - 332036) < 1:
+                placed.append(str(x))
+    assert placed == ["FY 2027"], placed
+
+
+def test_facets_share_fiscal_year_slots():
+    vendor = pd.read_csv(VENDOR_CSV)
+    pa = vendor[vendor["state"] == "PA"]
+    fig = charts.volume_price_comparison(pa, "weighted_avg_price", "annual")
+    bar_xs = []
+    for tr in fig.data:
+        if getattr(tr, "type", None) == "bar":
+            bar_xs.append([str(x) for x in tr.x])
+    assert bar_xs, "expected bar traces"
+    first = bar_xs[0]
+    assert all(xs == first for xs in bar_xs)
+    assert "FY 2025" in first
+    assert "FY 2027" in first
+
+
+def test_pa_facets_omit_detroit_and_lead_with_ars():
+    vendor = pd.read_csv(VENDOR_CSV)
+    pa = vendor[vendor["state"] == "PA"]
+    fig = charts.volume_price_comparison(pa, "weighted_avg_price", "annual")
+    titles = [a.text for a in fig.layout.annotations if a.text and not a.text.startswith("Bars")]
+    assert "Detroit Salt" not in titles
+    assert titles[0] == "American Rock Salt"
+    assert "Riverside" in titles[1]
+
+
 def test_comparison_volume_axis_fits_detroit():
     vendor = pd.read_csv(VENDOR_CSV)
     mi = vendor[(vendor["state"] == "MI") & vendor["is_attributed"]]

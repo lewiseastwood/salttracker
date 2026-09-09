@@ -329,6 +329,9 @@ share_fmt = st.column_config.NumberColumn(format="%.1%")
 value_fmt = st.column_config.NumberColumn(format="$%.0f")
 
 with tab_compare:
+    st.caption(
+        "One chart per state. Detroit Salt is Michigan-only; it will not appear on the Pennsylvania figure."
+    )
     for code in sel_states:
         st.plotly_chart(
             charts.volume_price_comparison(v[v["state"] == code], metric, grain),
