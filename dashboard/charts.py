@@ -373,14 +373,14 @@ def vendor_price_bars(
     src = vendor_df if state_code is None else vendor_df[vendor_df["state"] == state_code]
     latest = _latest(src)
     fy = int(latest["fiscal_year"].max()) if not latest.empty else None
-    df = _vendor_totals(latest, metric)
-    df = df[df["price"].notna()].sort_values("price", ascending=True)
     where = STATE_NAMES.get(state_code, "") if state_code else ""
     title = " · ".join(p for p in [f"{where} avg. price per ton".strip(), f"FY{fy}" if fy else ""] if p)
+    df = _vendor_totals(latest, metric)
     fig = go.Figure()
-    if df.empty:
+    if df.empty or "price" not in df.columns:
         fig.update_layout(title=title or "Avg. Price Per Ton")
-        return style(fig, height=380)
+        return style(fig, height=380, legend="none")
+    df = df[df["price"].notna()].sort_values("price", ascending=True)
     fig.add_trace(go.Bar(
         y=[_short(v) for v in df["vendor"]],
         x=df["price"],

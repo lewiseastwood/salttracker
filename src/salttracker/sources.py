@@ -79,6 +79,18 @@ MI_CONTRACT_VENDOR = {
     "260000000713": "Compass Minerals",
 }
 
+# Live DTMB page sometimes 403s from GitHub runners. These are the current
+# cumulative contracts (change notices append), so a seed fetch still carries
+# prior seasons. Discovery can add newer numbers on top.
+MI_SEED_DOCS = [
+    ("MI_FY2027_DetroitSalt_260000000712.pdf",
+     "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL/002/260000000712.pdf",
+     "Detroit Salt", "260000000712", 2027),
+    ("MI_FY2027_CompassMinerals_260000000713.pdf",
+     "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/022/260000000713.pdf",
+     "Compass Minerals", "260000000713", 2027),
+]
+
 # Pennsylvania COSTARS season packets. Paths are not templatable across years,
 # so known-good URLs are pinned and the live COSTARS page is also crawled.
 PA_SEED_DOCS = [
@@ -221,6 +233,15 @@ def discover_michigan_live() -> list[Doc]:
             notes="michigan.gov live listing",
         ))
     return docs
+
+
+def discover_michigan_seed() -> list[Doc]:
+    """Known current Michigan contracts, used when the live listing is empty."""
+    return [
+        Doc(state="MI", name=name, url=url, vendor=vendor, fy=fy, contract_no=cno,
+            notes="michigan seed url")
+        for name, url, vendor, cno, fy in MI_SEED_DOCS
+    ]
 
 
 def wayback_snapshots(url_pattern: str, match_type: str = "exact", limit: int = 200,
@@ -398,8 +419,10 @@ def discover_pennsylvania(state_dir: str | None = None, scan_emarketplace: bool 
 def discover_all(include_archive: bool = True, state_dir: str | None = None,
                  scan_emarketplace: bool = True) -> list[Doc]:
     docs = (discover_michigan_live()
+            + discover_michigan_seed()
             + discover_pennsylvania(state_dir=state_dir, scan_emarketplace=scan_emarketplace))
-    if include_archive:
+    have_mi = any(d.state == "MI" for d in docs)
+    if include_archive or not have_mi:
         docs += discover_michigan_archived()
     seen, out = set(), []
     for d in docs:

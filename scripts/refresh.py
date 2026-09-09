@@ -237,6 +237,15 @@ def _run(args: argparse.Namespace, stamp: str) -> int:
         stamp_run(stamp, "empty")
         return 1
 
+    previous_states = set(load_state().get("coverage", {}))
+    now_states = set(str(s) for s in result.raw["state"].dropna().unique())
+    dropped = previous_states - now_states
+    if dropped:
+        print(f"ERROR: refresh dropped states {sorted(dropped)}; not writing outputs.")
+        log({"event": "build", "status": "dropped_states", "dropped": sorted(dropped)})
+        stamp_run(stamp, "error")
+        return 1
+
     paths = export(result)
     print(f"\n{len(result.raw):,} contract line items")
     print(result.state_fy[[

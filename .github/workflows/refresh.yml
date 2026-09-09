@@ -80,7 +80,7 @@ jobs:
           python scripts/build_exec_dashboard.py
 
       - name: Persist outputs
-        if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
+        if: steps.refresh.outcome == 'success'
         run: |
           git config user.name "salttracker-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
