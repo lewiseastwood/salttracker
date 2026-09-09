@@ -346,7 +346,7 @@ with st.expander("How to read this"):
         "FY2027 is the awarded upcoming winter, not delivered volume. "
         "Pennsylvania FY2022–FY2023 have published county estimates but **no supplier award**, so those years have volume without a named price. "
         "Both states quote **delivered** $/short ton (not FOB); programs still differ, so the MI–PA price gap is real in the documents but not a like-for-like bid. "
-        "Quarterly view places each annual award in Q1 (Oct–Dec); Q2–Q4 are blank because the states do not publish quarterly contracted tons or prices."
+        "Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years."
     )
 
 st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")

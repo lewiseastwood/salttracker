@@ -50,21 +50,26 @@ def main() -> None:
     }
 
     plots = {
-        "price_ts_all": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
+        "price_ts_all_annual": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
+        "price_ts_all_quarter": fig_html(charts.price_timeseries(state, "weighted_avg_price", "quarter")),
         "volbars_all": fig_html(charts.state_volume_bars(state)),
-        "volume_all": fig_html(charts.volume_timeseries(state, "annual")),
+        "volume_all_annual": fig_html(charts.volume_timeseries(state, "annual")),
+        "volume_all_quarter": fig_html(charts.volume_timeseries(state, "quarter")),
     }
     for code in ("MI", "PA"):
         sub = named[named["state"] == code]
         st_sub = state[state["state"] == code]
-        plots[f"price_ts_{code}"] = fig_html(charts.price_timeseries(st_sub, "weighted_avg_price", "annual"))
+        plots[f"price_ts_{code}_annual"] = fig_html(charts.price_timeseries(st_sub, "weighted_avg_price", "annual"))
+        plots[f"price_ts_{code}_quarter"] = fig_html(charts.price_timeseries(st_sub, "weighted_avg_price", "quarter"))
         plots[f"compare_{code}_annual"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "annual"))
         plots[f"compare_{code}_quarter"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "quarter"))
         plots[f"volbars_{code}"] = fig_html(charts.state_volume_bars(st_sub))
         plots[f"bubbles_{code}"] = fig_html(charts.vendor_bubbles(sub, code))
         plots[f"bars_{code}"] = fig_html(charts.vendor_price_bars(sub, "weighted_avg_price", code))
-        plots[f"price_{code}"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "annual"))
-        plots[f"vol_{code}"] = fig_html(charts.vendor_volume(vendor[vendor["state"] == code], code, "annual"))
+        plots[f"price_{code}_annual"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "annual"))
+        plots[f"price_{code}_quarter"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "quarter"))
+        plots[f"vol_{code}_annual"] = fig_html(charts.vendor_volume(vendor[vendor["state"] == code], code, "annual"))
+        plots[f"vol_{code}_quarter"] = fig_html(charts.vendor_volume(vendor[vendor["state"] == code], code, "quarter"))
         plots[f"share_{code}"] = fig_html(charts.vendor_share(named, code))
 
     table_rows = []
@@ -180,10 +185,13 @@ def main() -> None:
     <div class="watch-meta">{htmlesc(watch['checked'])}</div>
   </div>
 
-  <div class="card wide" data-panel="all">{plots['price_ts_all']}</div>
+  <div class="card wide" data-panel="all" data-grain="annual">{plots['price_ts_all_annual']}</div>
+  <div class="card wide" data-panel="all" data-grain="quarter">{plots['price_ts_all_quarter']}</div>
   <p class="note" data-panel="all">Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years. Both states post delivered $/ton (not FOB); programs still differ, so the MI–PA gap is not a like-for-like bid.</p>
-  <div class="card wide" data-panel="MI">{plots['price_ts_MI']}</div>
-  <div class="card wide" data-panel="PA">{plots['price_ts_PA']}</div>
+  <div class="card wide" data-panel="MI" data-grain="annual">{plots['price_ts_MI_annual']}</div>
+  <div class="card wide" data-panel="MI" data-grain="quarter">{plots['price_ts_MI_quarter']}</div>
+  <div class="card wide" data-panel="PA" data-grain="annual">{plots['price_ts_PA_annual']}</div>
+  <div class="card wide" data-panel="PA" data-grain="quarter">{plots['price_ts_PA_quarter']}</div>
   <p class="note" data-panel="PA">Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years.</p>
   <details class="cov-panel" data-panel="all">
     <summary>Coverage by supplier and year</summary>
@@ -230,11 +238,16 @@ def main() -> None:
   <div class="card wide" data-panel="PA" data-grain="annual">{plots['compare_PA_annual']}</div>
   <div class="card wide" data-panel="PA" data-grain="quarter">{plots['compare_PA_quarter']}</div>
   <div class="grid">
-    <div class="card" data-panel="all">{plots['volume_all']}</div>
-    <div class="card" data-panel="MI">{plots['price_MI']}</div>
-    <div class="card" data-panel="MI">{plots['vol_MI']}</div>
-    <div class="card" data-panel="PA">{plots['price_PA']}</div>
-    <div class="card" data-panel="PA">{plots['vol_PA']}</div>
+    <div class="card" data-panel="all" data-grain="annual">{plots['volume_all_annual']}</div>
+    <div class="card" data-panel="all" data-grain="quarter">{plots['volume_all_quarter']}</div>
+    <div class="card" data-panel="MI" data-grain="annual">{plots['price_MI_annual']}</div>
+    <div class="card" data-panel="MI" data-grain="quarter">{plots['price_MI_quarter']}</div>
+    <div class="card" data-panel="MI" data-grain="annual">{plots['vol_MI_annual']}</div>
+    <div class="card" data-panel="MI" data-grain="quarter">{plots['vol_MI_quarter']}</div>
+    <div class="card" data-panel="PA" data-grain="annual">{plots['price_PA_annual']}</div>
+    <div class="card" data-panel="PA" data-grain="quarter">{plots['price_PA_quarter']}</div>
+    <div class="card" data-panel="PA" data-grain="annual">{plots['vol_PA_annual']}</div>
+    <div class="card" data-panel="PA" data-grain="quarter">{plots['vol_PA_quarter']}</div>
   </div>
 
   <h2>Tables</h2>
@@ -257,7 +270,7 @@ def main() -> None:
     <tbody></tbody>
   </table>
   </div>
-  <p class="note">CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec); Q2–Q4 are blank because the states do not publish quarterly contracted tons or prices.</p>
+  <p class="note">CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years.</p>
 </div>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>

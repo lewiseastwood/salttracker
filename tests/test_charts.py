@@ -106,3 +106,28 @@ def test_comparison_charts_build():
     assert fig.data
     fig = charts.vendor_price_bars(named)
     assert fig.data
+
+
+def test_quarter_price_lines_connect_across_empty_quarters():
+    vendor = pd.read_csv(VENDOR_CSV)
+    state = pd.read_csv(os.path.join(ROOT, "data", "output", "salt_contracts_by_state.csv"))
+    fig = charts.price_timeseries(state, "weighted_avg_price", "quarter")
+    scatters = [tr for tr in fig.data if tr.type == "scatter"]
+    assert scatters
+    nonempty = []
+    for tr in scatters:
+        assert tr.connectgaps is True
+        ys = list(tr.y)
+        assert any(y is None for y in ys)
+        nonempty.append(sum(y is not None for y in ys))
+    assert max(nonempty) >= 2
+    ticktext = list(fig.layout.xaxis.ticktext or [])
+    assert ticktext
+    assert any(t.startswith("FY ") for t in ticktext)
+    assert any(t == "" for t in ticktext)
+
+    pa = vendor[vendor["state"] == "PA"]
+    cmp_fig = charts.volume_price_comparison(pa, "weighted_avg_price", "quarter")
+    price_lines = [tr for tr in cmp_fig.data if tr.type == "scatter"]
+    assert price_lines
+    assert all(tr.connectgaps is True for tr in price_lines)

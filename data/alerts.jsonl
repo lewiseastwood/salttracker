@@ -7,3 +7,12 @@
 {"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_sodium-chloride-road_salt-2022-2023-season-contract_change-order-4.pdf"}
 {"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_sodium_chloride_road_salt_2023-2024_season_contract.pdf"}
 {"ts": "2026-09-09T13:33:54", "kind": "new-document", "detail": "newly published document: PA_live_sodium_chloride_road_salt_2024-2025_season_contract.pdf"}
+{"ts": "2026-09-09T09:41:06", "kind": "parse-failed", "state": "PA", "detail": "PA: PA_Award_NOA_6100048201.pdf produced no contract rows \u2014 parser may not match this layout"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-season", "state": "MI", "fiscal_year": 2022, "detail": "MI FY2022 appeared in the data for the first time"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-season", "state": "MI", "fiscal_year": 2023, "detail": "MI FY2023 appeared in the data for the first time"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-season", "state": "MI", "fiscal_year": 2024, "detail": "MI FY2024 appeared in the data for the first time"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-season", "state": "MI", "fiscal_year": 2025, "detail": "MI FY2025 appeared in the data for the first time"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-season", "state": "MI", "fiscal_year": 2026, "detail": "MI FY2026 appeared in the data for the first time"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-season", "state": "PA", "fiscal_year": 2022, "detail": "PA FY2022 appeared in the data for the first time"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-supplier", "state": "MI", "vendor": "Cargill", "detail": "MI: Cargill not seen in earlier runs"}
+{"ts": "2026-09-09T09:41:06", "kind": "new-supplier", "state": "PA", "vendor": "Unattributed", "detail": "PA: Unattributed not seen in earlier runs"}

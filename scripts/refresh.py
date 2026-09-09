@@ -243,7 +243,12 @@ def local_docs() -> tuple[dict[str, str | None], list[str], list[str]]:
     pa_all = _unique_by_content(sorted(glob.glob(os.path.join(RAW_ROOT, "PA", "*.pdf"))
                                        + glob.glob(os.path.join(RAW_ROOT, "PA", "*.xlsx"))))
     estimates = [p for p in pa_all if "estimates" in os.path.basename(p).lower()]
-    packets = [p for p in pa_all if p not in set(estimates) and p.lower().endswith(".pdf")]
+    packets = [
+        p for p in pa_all
+        if p not in set(estimates)
+        and p.lower().endswith(".pdf")
+        and "NOA" not in os.path.basename(p).upper()
+    ]
     return mi, packets, estimates
 
 
@@ -347,6 +352,22 @@ def _run(args: argparse.Namespace, stamp: str) -> int:
     if dropped:
         print(f"ERROR: refresh dropped states {sorted(dropped)}; not writing outputs.")
         log({"event": "build", "status": "dropped_states", "dropped": sorted(dropped)})
+        stamp_run(stamp, "error")
+        return 1
+
+    previous_cov = load_state().get("coverage", {})
+    now_years = {
+        str(st): {int(y) for y in grp.dropna().unique()}
+        for st, grp in result.raw.groupby("state")["fiscal_year"]
+    }
+    lost_years = {
+        st: sorted({int(y) for y in years} - now_years.get(st, set()))
+        for st, years in previous_cov.items()
+    }
+    lost_years = {st: ys for st, ys in lost_years.items() if ys}
+    if lost_years:
+        print(f"ERROR: refresh dropped fiscal years {lost_years}; not writing outputs.")
+        log({"event": "build", "status": "dropped_years", "dropped": lost_years})
         stamp_run(stamp, "error")
         return 1
 
