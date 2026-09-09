@@ -1,1 +1,1 @@
-# Dashboard package (charts imported as a sibling module when Streamlit runs).
+# Helpers are _charts / _briefing / _theme so Streamlit does not treat them as pages.

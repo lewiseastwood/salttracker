@@ -11,7 +11,7 @@ import pytest
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "dashboard"))
 
-import briefing  # noqa: E402
+import _briefing as briefing  # noqa: E402
 
 VENDOR_CSV = os.path.join(ROOT, "data", "output", "salt_contracts_by_vendor.csv")
 

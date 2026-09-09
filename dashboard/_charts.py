@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from theme import NAVY, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, style
+from _theme import NAVY, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, style
 
 SHORT_VENDOR = {
     "Riverside Construction Materials": "Riverside",
@@ -124,8 +124,6 @@ def _vendor_year(vendor_df: pd.DataFrame, metric: str) -> pd.DataFrame:
         rolled["simple_avg_price"] if metric == "simple_avg_price"
         else weighted.fillna(rolled["simple_avg_price"])
     )
-    # Only years that supplier actually has a row — do not grid every vendor
-    # onto FY2022–FY2027 or PA FY2024 prices sit on an FY2022 tick.
     return rolled
 
 

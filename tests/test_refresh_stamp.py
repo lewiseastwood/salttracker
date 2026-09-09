@@ -216,7 +216,7 @@ def test_parse_failure_end_to_end_strip_reads_parse_failed_not_stale(
     assert written["last_run"] != stale_ok
 
     sys.path.insert(0, os.path.join(ROOT, "dashboard"))
-    import briefing  # noqa: E402
+    import _briefing as briefing  # noqa: E402
 
     # Peak season, more than three days after the old ok stamp. If persist
     # never replaced that stamp, the strip would be stale, not failed.

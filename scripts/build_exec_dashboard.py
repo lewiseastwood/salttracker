@@ -18,9 +18,9 @@ import plotly.io as pio
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "dashboard"))
 
-import charts  # noqa: E402
-import briefing  # noqa: E402
-from theme import STATE_NAMES  # noqa: E402
+import _charts as charts  # noqa: E402
+import _briefing as briefing  # noqa: E402
+from _theme import STATE_NAMES  # noqa: E402
 
 OUT = os.path.join(ROOT, "data", "output")
 HTML = os.path.join(OUT, "Road_Salt_Contract_Tracker.html")

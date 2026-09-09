@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from theme import STATE_NAMES
+from _theme import STATE_NAMES
 
 # Same window as scripts/refresh.py: daily in June–August, Mondays otherwise.
 PEAK_MONTHS = (6, 7, 8)
