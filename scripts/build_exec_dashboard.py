@@ -32,25 +32,26 @@ def fig_html(fig) -> str:
 def main() -> None:
     vendor = pd.read_csv(os.path.join(OUT, "salt_contracts_by_vendor.csv"))
     state = pd.read_csv(os.path.join(OUT, "salt_contracts_by_state.csv"))
+    raw_path = os.path.join(OUT, "salt_contracts_raw.csv")
+    n_docs = 0
+    if os.path.exists(raw_path):
+        n_docs = pd.read_csv(raw_path, usecols=["source_doc"])["source_doc"].nunique()
     named = vendor[vendor["is_attributed"]].copy()
 
     plots = {
-        "compare_all_annual": fig_html(charts.volume_price_comparison(named, "weighted_avg_price", "annual")),
-        "compare_all_quarter": fig_html(charts.volume_price_comparison(named, "weighted_avg_price", "quarter")),
-        "map_all": fig_html(charts.state_overview_map(state)),
-        "bubbles_all": fig_html(charts.vendor_bubbles(named)),
-        "bars_all": fig_html(charts.vendor_price_bars(named, "weighted_avg_price")),
-        "price_all": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
+        "price_ts_all": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
+        "volbars_all": fig_html(charts.state_volume_bars(state)),
         "volume_all": fig_html(charts.volume_timeseries(state, "annual")),
     }
     for code in ("MI", "PA"):
         sub = named[named["state"] == code]
         st_sub = state[state["state"] == code]
+        plots[f"price_ts_{code}"] = fig_html(charts.price_timeseries(st_sub, "weighted_avg_price", "annual"))
         plots[f"compare_{code}_annual"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "annual"))
         plots[f"compare_{code}_quarter"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "quarter"))
-        plots[f"map_{code}"] = fig_html(charts.state_overview_map(st_sub))
-        plots[f"bubbles_{code}"] = fig_html(charts.vendor_bubbles(sub))
-        plots[f"bars_{code}"] = fig_html(charts.vendor_price_bars(sub, "weighted_avg_price"))
+        plots[f"volbars_{code}"] = fig_html(charts.state_volume_bars(st_sub))
+        plots[f"bubbles_{code}"] = fig_html(charts.vendor_bubbles(sub, code))
+        plots[f"bars_{code}"] = fig_html(charts.vendor_price_bars(sub, "weighted_avg_price", code))
         plots[f"price_{code}"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "annual"))
         plots[f"vol_{code}"] = fig_html(charts.vendor_volume(vendor[vendor["state"] == code], code, "annual"))
         plots[f"share_{code}"] = fig_html(charts.vendor_share(named, code))
@@ -120,7 +121,7 @@ def main() -> None:
 <body>
 <header>
   <h1>Road salt contract tracker</h1>
-  <p>Michigan and Pennsylvania &nbsp;·&nbsp; Contracted volume and price from published state awards &nbsp;·&nbsp; Fiscal years run 1 Oct – 30 Sep</p>
+  <p>Michigan and Pennsylvania &nbsp;·&nbsp; {n_docs} source documents &nbsp;·&nbsp; Contracted volume and price from published state awards &nbsp;·&nbsp; Fiscal years run 1 Oct – 30 Sep</p>
 </header>
 <div class="wrap">
   <div class="filters">
@@ -141,33 +142,44 @@ def main() -> None:
     </div>
   </div>
 
+  <div class="card wide" data-panel="all">{plots['price_ts_all']}</div>
+  <div class="card wide" data-panel="MI">{plots['price_ts_MI']}</div>
+  <div class="card wide" data-panel="PA">{plots['price_ts_PA']}</div>
+  <div class="grid">
+    <div class="card" data-panel="all">{plots['share_MI']}</div>
+    <div class="card" data-panel="all">{plots['share_PA']}</div>
+    <div class="card" data-panel="MI">{plots['share_MI']}</div>
+    <div class="card" data-panel="PA">{plots['share_PA']}</div>
+  </div>
+  <h2>Latest year</h2>
   <div class="grid3">
-    <div class="card" data-panel="all">{plots['map_all']}</div>
-    <div class="card" data-panel="MI">{plots['map_MI']}</div>
-    <div class="card" data-panel="PA">{plots['map_PA']}</div>
-    <div class="card" data-panel="all">{plots['bubbles_all']}</div>
+    <div class="card" data-panel="all">{plots['volbars_all']}</div>
+    <div class="card" data-panel="MI">{plots['volbars_MI']}</div>
+    <div class="card" data-panel="PA">{plots['volbars_PA']}</div>
+    <div class="card" data-panel="all">{plots['bubbles_MI']}</div>
+    <div class="card" data-panel="all">{plots['bars_MI']}</div>
+    <div class="card" data-panel="all">{plots['bubbles_PA']}</div>
+    <div class="card" data-panel="all">{plots['bars_PA']}</div>
     <div class="card" data-panel="MI">{plots['bubbles_MI']}</div>
     <div class="card" data-panel="PA">{plots['bubbles_PA']}</div>
-    <div class="card" data-panel="all">{plots['bars_all']}</div>
     <div class="card" data-panel="MI">{plots['bars_MI']}</div>
     <div class="card" data-panel="PA">{plots['bars_PA']}</div>
   </div>
-  <div class="card wide" data-panel="all" data-grain="annual" style="margin-top:16px">{plots['compare_all_annual']}</div>
-  <div class="card wide" data-panel="all" data-grain="quarter">{plots['compare_all_quarter']}</div>
+  <h2>Volume and price by supplier</h2>
+  <div class="card wide" data-panel="all" data-grain="annual">{plots['compare_MI_annual']}</div>
+  <div class="card wide" data-panel="all" data-grain="annual">{plots['compare_PA_annual']}</div>
+  <div class="card wide" data-panel="all" data-grain="quarter">{plots['compare_MI_quarter']}</div>
+  <div class="card wide" data-panel="all" data-grain="quarter">{plots['compare_PA_quarter']}</div>
   <div class="card wide" data-panel="MI" data-grain="annual">{plots['compare_MI_annual']}</div>
   <div class="card wide" data-panel="MI" data-grain="quarter">{plots['compare_MI_quarter']}</div>
   <div class="card wide" data-panel="PA" data-grain="annual">{plots['compare_PA_annual']}</div>
   <div class="card wide" data-panel="PA" data-grain="quarter">{plots['compare_PA_quarter']}</div>
-  <h2>Over time</h2>
   <div class="grid">
-    <div class="card" data-panel="all">{plots['price_all']}</div>
     <div class="card" data-panel="all">{plots['volume_all']}</div>
     <div class="card" data-panel="MI">{plots['price_MI']}</div>
     <div class="card" data-panel="MI">{plots['vol_MI']}</div>
     <div class="card" data-panel="PA">{plots['price_PA']}</div>
     <div class="card" data-panel="PA">{plots['vol_PA']}</div>
-    <div class="card" data-panel="MI">{plots['share_MI']}</div>
-    <div class="card" data-panel="PA">{plots['share_PA']}</div>
   </div>
 
   <h2>Tables</h2>

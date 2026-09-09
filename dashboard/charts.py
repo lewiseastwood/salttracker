@@ -75,12 +75,9 @@ def _vendor_year(vendor_df: pd.DataFrame, metric: str) -> pd.DataFrame:
         rolled["simple_avg_price"] if metric == "simple_avg_price"
         else weighted.fillna(rolled["simple_avg_price"])
     )
-    fys = sorted(int(x) for x in named["fiscal_year"].unique())
-    vendors = sorted(named["vendor"].unique())
-    grid = pd.MultiIndex.from_product(
-        [vendors, fys], names=["vendor", "fiscal_year"]
-    ).to_frame(index=False)
-    return grid.merge(rolled, on=["vendor", "fiscal_year"], how="left")
+    # Only years that supplier actually has a row — do not grid every vendor
+    # onto FY2022–FY2027 or PA FY2024 prices sit on an FY2022 tick.
+    return rolled
 
 
 def volume_price_comparison(
@@ -88,13 +85,17 @@ def volume_price_comparison(
     metric: str = "weighted_avg_price",
     grain: str = "annual",
 ) -> go.Figure:
-    """Volume bars + average price, one panel per supplier."""
+    """Volume bars + average price, one panel per supplier.
+
+    Volume is plotted in tons on a shared axis. Do not divide by 1,000 and
+    then suffix 'K' — Plotly then autoranges ~0–4 and every bar clips.
+    """
     df = _with_period(_vendor_year(vendor_df, metric), grain)
     vendors = sorted(df["vendor"].unique()) if not df.empty else []
     n = max(len(vendors), 1)
     fig = make_subplots(
         rows=1, cols=n,
-        shared_yaxes=True,
+        shared_yaxes=False,
         specs=[[{"secondary_y": True} for _ in range(n)]],
         subplot_titles=[_short(v) for v in vendors] or [" "],
         horizontal_spacing=min(0.04, 0.12 / n),
@@ -103,33 +104,28 @@ def volume_price_comparison(
         fig.update_layout(title="Volume-Pricing Comparison")
         return style(fig, height=480)
 
+    ton_max = pd.to_numeric(df["contracted_tons"], errors="coerce").max()
+    y1_top = (float(ton_max) * 1.12) if pd.notna(ton_max) and ton_max else 1
     ymax = pd.to_numeric(df["price"], errors="coerce").max()
     y2_top = (float(ymax) * 1.18) if pd.notna(ymax) else 120
-    show_labels = grain == "annual" and n <= 3
 
     for i, vendor in enumerate(vendors, start=1):
         g = df[df["vendor"] == vendor].sort_values("period_sort")
-        tons_k = [None if pd.isna(t) else t / 1000.0 for t in g["contracted_tons"]]
+        tons = [None if pd.isna(t) else float(t) for t in g["contracted_tons"]]
         fig.add_trace(
             go.Bar(
-                x=g["period"], y=tons_k,
+                x=g["period"], y=tons,
                 marker_color=VENDOR_COLORS.get(vendor, "#4E79A7"),
-                name="Volume (T)",
+                name="Contracted tons",
                 showlegend=i == 1,
-                customdata=g["contracted_tons"],
-                hovertemplate="%{x}<br>%{customdata:,.0f} tons<extra>Volume</extra>",
+                hovertemplate="%{x}<br>%{y:,.0f} tons<extra>Volume</extra>",
             ),
             row=1, col=i, secondary_y=False,
         )
-        labels = [f"${p:,.2f}" if show_labels and pd.notna(p) else "" for p in g["price"]]
         fig.add_trace(
             go.Scatter(
                 x=g["period"], y=g["price"],
-                mode="lines+markers+text" if show_labels else "lines+markers",
-                text=labels,
-                textposition="top center",
-                textfont=dict(size=10, color="#3D3D3D"),
-                cliponaxis=False,
+                mode="lines+markers",
                 line=dict(color=PRICE_LINE, width=2),
                 marker=dict(size=6, color=PRICE_LINE),
                 name="Avg. price",
@@ -140,28 +136,37 @@ def volume_price_comparison(
             row=1, col=i, secondary_y=True,
         )
         fig.update_xaxes(tickangle=-90, tickfont=dict(size=9), row=1, col=i)
-        fig.update_yaxes(rangemode="tozero", row=1, col=i, secondary_y=False)
+        fig.update_yaxes(
+            range=[0, y1_top], tickformat=",.0f", rangemode="tozero",
+            row=1, col=i, secondary_y=False,
+        )
         fig.update_yaxes(
             range=[0, y2_top], showgrid=False, rangemode="tozero",
+            tickprefix="$", tickformat=",.0f",
             row=1, col=i, secondary_y=True,
         )
 
-    fig.update_yaxes(title_text="Volume (T)", ticksuffix="K", row=1, col=1, secondary_y=False)
-    fig.update_yaxes(
-        title_text="Avg. Price Per Ton", tickprefix="$", tickformat=",.0f",
-        row=1, col=n, secondary_y=True,
-    )
+    fig.update_yaxes(title_text="Contracted tons", row=1, col=1, secondary_y=False)
+    fig.update_yaxes(title_text="Avg. $/ton", row=1, col=n, secondary_y=True)
     fig.update_layout(
         title="Volume-Pricing Comparison",
         bargap=0.35,
         hovermode="closest",
-        legend=dict(orientation="h", yanchor="bottom", y=1.12, x=0),
-        margin=dict(l=56, r=64, t=88, b=72),
+        legend=dict(orientation="h", yanchor="top", y=-0.22, x=0, title=None),
+        margin=dict(l=64, r=64, t=56, b=96),
     )
     return style(fig, height=500)
 
 
 def _latest(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty or "fiscal_year" not in df.columns:
+        return df
+    return df[df["fiscal_year"] == int(df["fiscal_year"].max())].copy()
+
+
+def state_overview_map(state_df: pd.DataFrame) -> go.Figure:
+    """Back-compat alias; the choropleth was misleading and was removed."""
+    return state_volume_bars(state_df)
     if df.empty or "fiscal_year" not in df.columns:
         return df
     return df[df["fiscal_year"] == int(df["fiscal_year"].max())].copy()
@@ -188,48 +193,43 @@ def _vendor_totals(vendor_df: pd.DataFrame, metric: str) -> pd.DataFrame:
     return rolled
 
 
-def state_overview_map(state_df: pd.DataFrame) -> go.Figure:
-    """Michigan and Pennsylvania only, zoomed to those two states."""
+def state_volume_bars(state_df: pd.DataFrame) -> go.Figure:
+    """Two (or one) volume bars for the latest year — not a choropleth."""
     g = _latest(state_df)
     fy = int(g["fiscal_year"].max()) if not g.empty else None
     fig = go.Figure()
     if not g.empty:
-        hover = pd.DataFrame({
-            "name": g["state"].map(STATE_NAMES),
-            "price": g["weighted_avg_price"],
-        })
-        fig.add_trace(go.Choropleth(
-            locations=g["state"],
-            locationmode="USA-states",
-            z=g["contracted_tons"].fillna(0),
-            customdata=hover.to_numpy(),
-            colorscale=[[0, "#D7EEF2"], [1, "#1B3A4B"]],
-            colorbar=dict(title="Tons", thickness=12, len=0.6, outlinewidth=0),
-            hovertemplate="%{customdata[0]}<br>%{z:,.0f} tons<br>%{customdata[1]:$,.2f}/ton<extra></extra>",
-            marker_line_color="#FFFFFF",
-            marker_line_width=1,
-            showscale=True,
+        g = g.sort_values("state")
+        fig.add_trace(go.Bar(
+            x=[STATE_NAMES.get(c, c) for c in g["state"]],
+            y=g["contracted_tons"],
+            marker_color=[STATE_COLORS.get(c, "#1B3A4B") for c in g["state"]],
+            text=[f"{t:,.0f} t" if pd.notna(t) else "—" for t in g["contracted_tons"]],
+            textposition="outside",
+            cliponaxis=False,
+            hovertemplate="%{x}<br>%{y:,.0f} tons<extra></extra>",
         ))
-    fig.update_geos(
-        fitbounds="locations",
-        visible=False,
-        bgcolor="white",
-        projection_type="albers usa",
-    )
+    fig.update_yaxes(title="Contracted tons", tickformat=",.0f", rangemode="tozero")
     fig.update_layout(
         title=f"Contracted volume · FY{fy}" if fy else "Contracted volume",
-        margin=dict(l=0, r=0, t=48, b=0),
+        margin=dict(l=48, r=24, t=48, b=32),
+        showlegend=False,
     )
     return style(fig, height=380)
 
 
-def vendor_bubbles(vendor_df: pd.DataFrame) -> go.Figure:
-    """Treemap of supplier volume for the latest year in view."""
-    df = _vendor_totals(_latest(vendor_df), "weighted_avg_price")
+def vendor_bubbles(vendor_df: pd.DataFrame, state_code: str | None = None) -> go.Figure:
+    """Treemap of supplier volume for one state, latest year in view."""
+    src = vendor_df if state_code is None else vendor_df[vendor_df["state"] == state_code]
+    latest = _latest(src)
+    fy = int(latest["fiscal_year"].max()) if not latest.empty else None
+    df = _vendor_totals(latest, "weighted_avg_price")
     df = df[df["contracted_tons"].fillna(0) > 0].sort_values("contracted_tons", ascending=False)
+    where = STATE_NAMES.get(state_code, "") if state_code else ""
+    title = " · ".join(p for p in [f"{where} supplier volume".strip(), f"FY{fy}" if fy else ""] if p)
     fig = go.Figure()
     if df.empty:
-        fig.update_layout(title="Supplier volume")
+        fig.update_layout(title=title or "Supplier volume")
         return style(fig, height=380)
     fig.add_trace(go.Treemap(
         labels=[_short(v) for v in df["vendor"]],
@@ -244,19 +244,25 @@ def vendor_bubbles(vendor_df: pd.DataFrame) -> go.Figure:
         hovertemplate="%{label}<br>%{value:,.0f} tons (%{percentRoot:.0%})<extra></extra>",
         root=dict(color="#FFFFFF"),
     ))
-    fig.update_layout(
-        title="Supplier volume",
-        margin=dict(l=8, r=8, t=48, b=8),
-    )
+    fig.update_layout(title=title, margin=dict(l=8, r=8, t=48, b=8))
     return style(fig, height=380)
 
 
-def vendor_price_bars(vendor_df: pd.DataFrame, metric: str = "weighted_avg_price") -> go.Figure:
-    df = _vendor_totals(_latest(vendor_df), metric)
+def vendor_price_bars(
+    vendor_df: pd.DataFrame,
+    metric: str = "weighted_avg_price",
+    state_code: str | None = None,
+) -> go.Figure:
+    src = vendor_df if state_code is None else vendor_df[vendor_df["state"] == state_code]
+    latest = _latest(src)
+    fy = int(latest["fiscal_year"].max()) if not latest.empty else None
+    df = _vendor_totals(latest, metric)
     df = df[df["price"].notna()].sort_values("price", ascending=True)
+    where = STATE_NAMES.get(state_code, "") if state_code else ""
+    title = " · ".join(p for p in [f"{where} avg. price per ton".strip(), f"FY{fy}" if fy else ""] if p)
     fig = go.Figure()
     if df.empty:
-        fig.update_layout(title="Avg. Price Per Ton")
+        fig.update_layout(title=title or "Avg. Price Per Ton")
         return style(fig, height=380)
     fig.add_trace(go.Bar(
         y=[_short(v) for v in df["vendor"]],
@@ -270,7 +276,7 @@ def vendor_price_bars(vendor_df: pd.DataFrame, metric: str = "weighted_avg_price
     ))
     fig.update_xaxes(title=None, tickprefix="$", rangemode="tozero")
     fig.update_yaxes(title=None, automargin=True)
-    fig.update_layout(title="Avg. Price Per Ton", margin=dict(l=8, r=72, t=48, b=24))
+    fig.update_layout(title=title, margin=dict(l=8, r=72, t=48, b=24))
     return style(fig, height=380)
 
 
@@ -290,8 +296,24 @@ def price_timeseries(
         ))
     fig.update_yaxes(title="USD per short ton", tickprefix="$", tickformat=",.0f")
     fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0)
-    fig.update_layout(title="Contracted price over time")
-    return style(fig)
+    fig.update_layout(
+        title="Contracted price over time",
+        margin=dict(l=56, r=24, t=72, b=48),
+    )
+    if "PA" in set(state_df["state"]):
+        fig.add_annotation(
+            text="Pennsylvania FY2022–FY2023: estimates list volume, not a supplier award — no PA price those years.",
+            xref="paper", yref="paper", x=0, y=1.14,
+            showarrow=False, xanchor="left",
+            font=dict(size=11, color="#5C6770"),
+        )
+    fig.add_annotation(
+        text="Both states post delivered $/ton (not FOB). Programs still differ, so the MI–PA gap is not a like-for-like bid spread.",
+        xref="paper", yref="paper", x=0, y=-0.18,
+        showarrow=False, xanchor="left",
+        font=dict(size=11, color="#5C6770"),
+    )
+    return style(fig, height=440)
 
 
 def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figure:
@@ -326,7 +348,17 @@ def vendor_price(
         ))
     fig.update_yaxes(title="USD per short ton", tickprefix="$")
     fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0)
-    fig.update_layout(title=f"{STATE_NAMES.get(state_code, state_code)} — price by supplier")
+    fig.update_layout(
+        title=f"{STATE_NAMES.get(state_code, state_code)} — price by supplier",
+        margin=dict(l=56, r=24, t=72, b=48),
+    )
+    if state_code == "PA":
+        fig.add_annotation(
+            text="No published supplier award in FY2022–FY2023. First priced year is FY2024 (ARS ~$81.79, Morton ~$80.77).",
+            xref="paper", yref="paper", x=0, y=1.14,
+            showarrow=False, xanchor="left",
+            font=dict(size=11, color="#5C6770"),
+        )
     return style(fig)
 
 

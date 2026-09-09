@@ -150,10 +150,17 @@ if vendor is None:
 named_vendors = sorted(v for v in vendor["vendor"].unique() if v != "Unattributed")
 fys = sorted(int(x) for x in vendor["fiscal_year"].unique())
 
+n_docs = int(raw["source_doc"].nunique()) if "source_doc" in raw.columns else 0
+try:
+    retrieved = pd.to_datetime(raw["retrieved_at"], errors="coerce").max()
+    retrieved_label = retrieved.strftime("%d %b %Y") if pd.notna(retrieved) else date.today().strftime("%d %b %Y")
+except Exception:
+    retrieved_label = date.today().strftime("%d %b %Y")
+
 st.markdown(
     f"""<div class="masthead">
       <div class="title">Road salt contract tracker</div>
-      <div class="meta">Michigan · Pennsylvania &nbsp;|&nbsp; {date.today().strftime("%d %b %Y")}</div>
+      <div class="meta">Michigan · Pennsylvania &nbsp;|&nbsp; {n_docs} source documents &nbsp;|&nbsp; Updated {retrieved_label}</div>
     </div>""",
     unsafe_allow_html=True,
 )
@@ -236,10 +243,23 @@ def _delta(now, then, fmt):
         return None
     return fmt.format(now - then)
 
+def _named_set(df: pd.DataFrame, fy: int) -> set[str]:
+    if df.empty:
+        return set()
+    hit = df[(df["fiscal_year"] == fy) & df["is_attributed"]]
+    return set(hit["vendor"].dropna().unique())
+
+
 k1, k2, k3 = st.columns(3)
 tons_now = float(cur["contracted_tons"].fillna(0).sum())
 tons_prev = float(prev["contracted_tons"].fillna(0).sum()) if prev is not None and not prev.empty else None
 priced_now = float(cur["priced_tons"].fillna(0).sum())
+like_for_like = (
+    prev_fy is not None
+    and _named_set(v, latest_fy) == _named_set(v, prev_fy)
+    and _named_set(v, latest_fy)
+)
+
 if priced_now:
     wavg = float(cur["contract_value"].sum() / priced_now)
     wavg_prev = None
@@ -248,61 +268,59 @@ if priced_now:
         price_delta = f"{(wavg / wavg_prev - 1) * 100:+.1f}% vs FY{prev_fy}"
     else:
         price_delta = None
-    k1.metric("Avg. Price", f"${wavg:,.2f}", price_delta)
-    k3.metric("Estd. Value", f"${cur['contract_value'].sum() / 1e6:,.0f}M")
+    k1.metric(f"FY{latest_fy} Avg. Price", f"${wavg:,.2f}", price_delta)
+    val_now = float(cur["contract_value"].sum())
+    val_prev = float(prev["contract_value"].sum()) if like_for_like and prev is not None else None
+    k3.metric(
+        f"FY{latest_fy} Estd. Value",
+        f"${val_now / 1e6:,.0f}M",
+        f"{(val_now - val_prev) / 1e6:+.0f}M vs FY{prev_fy}" if val_prev else None,
+    )
 else:
-    k1.metric("Avg. Price", "—")
-    k3.metric("Estd. Value", "—")
+    k1.metric(f"FY{latest_fy} Avg. Price", "—")
+    k3.metric(f"FY{latest_fy} Estd. Value", "—")
 k2.metric(
-    "Volume (T)",
+    f"FY{latest_fy} Volume (T)",
     f"{tons_now / 1000:,.0f}K",
-    _delta(tons_now, tons_prev, "{:+,.0f} t vs prior year") if tons_prev else None,
+    _delta(tons_now, tons_prev, "{:+,.0f} t vs prior year") if like_for_like and tons_prev else None,
 )
+if not like_for_like and prev_fy:
+    added = _named_set(v, latest_fy) - _named_set(v, prev_fy)
+    dropped = _named_set(v, prev_fy) - _named_set(v, latest_fy)
+    bits = []
+    if added:
+        bits.append("added " + ", ".join(sorted(added)))
+    if dropped:
+        bits.append("dropped " + ", ".join(sorted(dropped)))
+    st.caption(
+        f"Volume and value vs FY{prev_fy} are omitted: the named-supplier set changed"
+        + (f" ({'; '.join(bits)})" if bits else "")
+        + ". That is coverage/awards, not like-for-like market growth."
+    )
 
-st.markdown(
-    '<p class="note">Michigan and Pennsylvania only. Fiscal years run 1 Oct – 30 Sep and are named for the year they end. '
-    "Price is the volume-weighted average unless you switch the basis. "
-    "FY2027 is the awarded upcoming winter, not delivered volume. "
-    "PA FY2022–FY2023 volume has no published supplier award and is held out of share. "
-    "Quarterly view places each annual award in Q1 (Oct–Dec); Q2–Q4 are blank because the states do not publish quarterly contracted tons or prices.</p>",
-    unsafe_allow_html=True,
-)
+with st.expander("How to read this"):
+    st.markdown(
+        "Fiscal years run 1 Oct – 30 Sep and are named for the year they end. "
+        "Headline KPIs are the **latest fiscal year in the From/To range**, not a multi-year average. "
+        "Price is the volume-weighted average unless you switch the basis. "
+        "FY2027 is the awarded upcoming winter, not delivered volume. "
+        "Pennsylvania FY2022–FY2023 have published county estimates but **no supplier award**, so those years have volume without a named price. "
+        "Both states quote **delivered** $/short ton (not FOB); programs still differ, so the MI–PA price gap is real in the documents but not a like-for-like bid. "
+        "Quarterly view places each annual award in Q1 (Oct–Dec); Q2–Q4 are blank because the states do not publish quarterly contracted tons or prices."
+    )
 
-if latest_fy == 2027:
-    st.caption("FY2027 contracts were awarded in summer 2026 and may still be amended by change notice.")
+st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")
 
-m1, m2, m3 = st.columns(3)
-with m1:
-    st.plotly_chart(charts.state_overview_map(s), width="stretch")
-with m2:
-    st.plotly_chart(charts.vendor_bubbles(v), width="stretch")
-with m3:
-    st.plotly_chart(charts.vendor_price_bars(v, metric), width="stretch")
+share_cols = st.columns(len(sel_states))
+for i, code in enumerate(sel_states):
+    vs = v[(v["state"] == code) & v["is_attributed"]]
+    if vs.empty:
+        continue
+    with share_cols[i]:
+        st.plotly_chart(charts.vendor_share(v, code), width="stretch")
 
-st.plotly_chart(charts.volume_price_comparison(v, metric, grain), width="stretch")
-
-st.caption("Download the current filters as tables. Full tables are also on the last tab.")
-x1, x2, x3, x4 = st.columns(4)
-x1.download_button(
-    "Supplier table · CSV", by_supplier.to_csv(index=False).encode(),
-    "salt_by_supplier.csv", "text/csv", width="stretch", key="top_supplier_csv",
-)
-x2.download_button(
-    "State table · CSV", by_state.to_csv(index=False).encode(),
-    "salt_by_state.csv", "text/csv", width="stretch", key="top_state_csv",
-)
-x3.download_button(
-    "Line items · CSV", line_items.to_csv(index=False).encode(),
-    "salt_line_items.csv", "text/csv", width="stretch", key="top_line_csv",
-)
-x4.download_button(
-    "All three · Excel", pack, "salt_contract_tables.xlsx",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    width="stretch", key="top_excel",
-)
-
-tab_price, tab_vol, tab_share, tab_table = st.tabs(
-    ["Price by supplier", "Volume by supplier", "Market share", "Tables & export"]
+tab_compare, tab_suppliers, tab_vol, tab_table = st.tabs(
+    ["Volume & price by supplier", "Suppliers in latest year", "Volume over time", "Tables & export"]
 )
 
 money_fmt = st.column_config.NumberColumn(format="$%.2f")
@@ -310,23 +328,27 @@ tons_fmt = st.column_config.NumberColumn(format="%.0f")
 share_fmt = st.column_config.NumberColumn(format="%.1%")
 value_fmt = st.column_config.NumberColumn(format="$%.0f")
 
-with tab_price:
-    st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")
+with tab_compare:
+    for code in sel_states:
+        st.plotly_chart(
+            charts.volume_price_comparison(v[v["state"] == code], metric, grain),
+            width="stretch",
+        )
     for code in sel_states:
         st.plotly_chart(charts.vendor_price(v, metric, code, grain), width="stretch")
+
+with tab_suppliers:
+    for code in sel_states:
+        c1, c2 = st.columns(2)
+        with c1:
+            st.plotly_chart(charts.vendor_bubbles(v, code), width="stretch")
+        with c2:
+            st.plotly_chart(charts.vendor_price_bars(v, metric, code), width="stretch")
 
 with tab_vol:
     st.plotly_chart(charts.volume_timeseries(s, grain), width="stretch")
     for code in sel_states:
         st.plotly_chart(charts.vendor_volume(v, code, grain), width="stretch")
-
-with tab_share:
-    st.caption("Share of volume that names a supplier. Unattributed PA years are omitted.")
-    for code in sel_states:
-        vs = v[(v["state"] == code) & v["is_attributed"]]
-        if vs.empty:
-            continue
-        st.plotly_chart(charts.vendor_share(v, code), width="stretch")
 
 with tab_table:
     st.markdown("**These tables follow the dropdowns above** — selected state, supplier and years only.")
