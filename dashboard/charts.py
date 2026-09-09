@@ -82,6 +82,36 @@ def _vendor_year(vendor_df: pd.DataFrame, metric: str) -> pd.DataFrame:
     return rolled
 
 
+def _legend_below(y: float = -0.18) -> dict:
+    return dict(
+        orientation="h", yanchor="top", y=y, x=0, xanchor="left",
+        title=None, font=dict(size=12), bgcolor="rgba(0,0,0,0)",
+    )
+
+
+def _ton_ticks(ymax: float, headroom: float = 1.12) -> dict:
+    """Compact 200K / 1M ticks so the y-axis title does not sit on the numbers."""
+    top = (float(ymax) * headroom) if pd.notna(ymax) and ymax else 1
+    if top >= 1_000_000:
+        step = 200_000
+    elif top >= 400_000:
+        step = 200_000
+    elif top >= 100_000:
+        step = 50_000
+    else:
+        step = 20_000
+    tickvals = list(range(0, int(top) + step, step))
+    if tickvals[-1] < top:
+        tickvals.append(int(math.ceil(top / step) * step))
+    return dict(
+        range=[0, max(top, tickvals[-1])],
+        tickvals=tickvals,
+        ticktext=[_ton_tick_text(v) for v in tickvals],
+        title_standoff=18,
+        automargin=True,
+    )
+
+
 def _ton_tick_text(n: float) -> str:
     if n >= 1_000_000:
         v = n / 1_000_000
@@ -151,17 +181,12 @@ def volume_price_comparison(
         shared_yaxes=False,
         specs=specs,
         subplot_titles=titles,
-        horizontal_spacing=0.05,
-        vertical_spacing=0.16 if nrows > 1 else 0.12,
+        horizontal_spacing=0.07,
+        vertical_spacing=0.32 if nrows > 1 else 0.12,
     )
 
     ton_max = pd.to_numeric(df["contracted_tons"], errors="coerce").max()
-    y1_top = (float(ton_max) * 1.12) if pd.notna(ton_max) and ton_max else 1
-    step = 200_000
-    tickvals = list(range(0, int(y1_top) + step, step))
-    if tickvals[-1] < y1_top:
-        tickvals.append(int(math.ceil(y1_top / step) * step))
-    ticktext = [_ton_tick_text(v) for v in tickvals]
+    ton_axis = _ton_ticks(ton_max)
     ymax = pd.to_numeric(df["price"], errors="coerce").max()
     y2_top = (float(ymax) * 1.18) if pd.notna(ymax) else 120
 
@@ -206,12 +231,14 @@ def volume_price_comparison(
             row=r, col=c,
         )
         fig.update_yaxes(
-            range=[0, y1_top],
-            tickvals=tickvals,
-            ticktext=ticktext if show_vol else [""] * len(tickvals),
+            range=ton_axis["range"],
+            tickvals=ton_axis["tickvals"],
+            ticktext=ton_axis["ticktext"] if show_vol else [""] * len(ton_axis["tickvals"]),
             showticklabels=show_vol,
             ticks="outside" if show_vol else "",
-            title_text="Contracted tons" if show_vol else "",
+            title_text="",
+            title_standoff=8,
+            automargin=show_vol,
             row=r, col=c, secondary_y=False,
         )
         fig.update_yaxes(
@@ -221,7 +248,8 @@ def volume_price_comparison(
             tickformat=",.0f",
             showticklabels=show_price,
             ticks="outside" if show_price else "",
-            title_text="Avg. $/ton" if show_price else "",
+            title_text="",
+            automargin=show_price,
             row=r, col=c, secondary_y=True,
         )
 
@@ -233,23 +261,13 @@ def volume_price_comparison(
         title=title,
         bargap=0.35,
         hovermode="closest",
-        legend=dict(
-            orientation="h", yanchor="bottom", y=1.12, x=0.5, xanchor="center",
-            title=None,
-        ),
-        margin=dict(l=72, r=64, t=88, b=88),
     )
-    price_no_vol = df["price"].notna() & df["contracted_tons"].isna()
-    if grain == "quarter":
-        price_no_vol = price_no_vol & df["period"].str.endswith("Q1")
-    if price_no_vol.any():
-        fig.add_annotation(
-            text="Bars absent where contracted tonnage was not published (PA FY2025 renewal).",
-            xref="paper", yref="paper", x=0, y=-0.14,
-            showarrow=False, xanchor="left",
-            font=dict(size=11, color="#5C6770"),
-        )
-    return style(fig, height=420 * nrows + 40)
+    fig = style(fig, height=460 * nrows + 90)
+    fig.update_layout(
+        legend=_legend_below(-0.28 if nrows == 1 else -0.12),
+        margin=dict(l=64, r=72, t=80, b=140),
+    )
+    return fig
 
 
 def _latest(df: pd.DataFrame) -> pd.DataFrame:
@@ -300,13 +318,16 @@ def state_volume_bars(state_df: pd.DataFrame) -> go.Figure:
             cliponaxis=False,
             hovertemplate="%{x}<br>%{y:,.0f} tons<extra></extra>",
         ))
-    fig.update_yaxes(title="Contracted tons", tickformat=",.0f", rangemode="tozero")
+    fig.update_yaxes(title="Contracted tons", **_ton_ticks(
+        pd.to_numeric(g["contracted_tons"], errors="coerce").max() if not g.empty else 1,
+        headroom=1.22,
+    ))
     fig.update_layout(
         title=f"Contracted volume · FY{fy}" if fy else "Contracted volume",
-        margin=dict(l=48, r=24, t=48, b=32),
+        margin=dict(l=80, r=24, t=64, b=40),
         showlegend=False,
     )
-    return style(fig, height=380)
+    return style(fig, height=380, legend="none")
 
 
 def vendor_bubbles(vendor_df: pd.DataFrame, state_code: str | None = None) -> go.Figure:
@@ -335,8 +356,13 @@ def vendor_bubbles(vendor_df: pd.DataFrame, state_code: str | None = None) -> go
         hovertemplate="%{label}<br>%{value:,.0f} tons (%{percentRoot:.0%})<extra></extra>",
         root=dict(color="#FFFFFF"),
     ))
-    fig.update_layout(title=title, margin=dict(l=8, r=8, t=48, b=8))
-    return style(fig, height=380)
+    fig.update_layout(
+        title=title,
+        margin=dict(l=16, r=16, t=64, b=16),
+        uniformtext=dict(minsize=11, mode="hide"),
+        showlegend=False,
+    )
+    return style(fig, height=380, legend="none")
 
 
 def vendor_price_bars(
@@ -365,10 +391,11 @@ def vendor_price_bars(
         cliponaxis=False,
         hovertemplate="%{y}<br>%{x:$,.2f}/ton<extra></extra>",
     ))
-    fig.update_xaxes(title=None, tickprefix="$", rangemode="tozero")
+    xmax = float(pd.to_numeric(df["price"], errors="coerce").max() or 0)
+    fig.update_xaxes(title=None, tickprefix="$", range=[0, xmax * 1.18 if xmax else 1], automargin=True)
     fig.update_yaxes(title=None, automargin=True)
-    fig.update_layout(title=title, margin=dict(l=8, r=72, t=48, b=24))
-    return style(fig, height=380)
+    fig.update_layout(title=title, margin=dict(l=16, r=72, t=64, b=40), showlegend=False)
+    return style(fig, height=380, legend="none")
 
 
 def price_timeseries(
@@ -385,26 +412,17 @@ def price_timeseries(
             connectgaps=False,
             hovertemplate="%{y:$,.2f}/ton<extra>%{fullData.name}</extra>",
         ))
-    fig.update_yaxes(title="USD per short ton", tickprefix="$", tickformat=",.0f")
-    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0)
+    fig.update_yaxes(title="USD per short ton", tickprefix="$", tickformat=",.0f", title_standoff=18, automargin=True)
+    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0, automargin=True)
     fig.update_layout(
         title="Contracted price over time",
-        margin=dict(l=56, r=24, t=72, b=48),
     )
-    if "PA" in set(state_df["state"]):
-        fig.add_annotation(
-            text="Pennsylvania FY2022–FY2023: estimates list volume, not a supplier award — no PA price those years.",
-            xref="paper", yref="paper", x=0, y=1.14,
-            showarrow=False, xanchor="left",
-            font=dict(size=11, color="#5C6770"),
-        )
-    fig.add_annotation(
-        text="Both states post delivered $/ton (not FOB). Programs still differ, so the MI–PA gap is not a like-for-like bid spread.",
-        xref="paper", yref="paper", x=0, y=-0.18,
-        showarrow=False, xanchor="left",
-        font=dict(size=11, color="#5C6770"),
+    fig = style(fig, height=480)
+    fig.update_layout(
+        legend=_legend_below(-0.20),
+        margin=dict(l=88, r=24, t=64, b=96),
     )
-    return style(fig, height=440)
+    return fig
 
 
 def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figure:
@@ -416,10 +434,19 @@ def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figur
             marker_color=STATE_COLORS.get(code, "#1B3A4B"),
             hovertemplate="%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
-    fig.update_yaxes(title="Contracted tons", tickformat=",.0f")
-    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0)
-    fig.update_layout(barmode="group", title="Contracted volume over time")
-    return style(fig)
+    tons = pd.to_numeric(state_df["contracted_tons"], errors="coerce")
+    fig.update_yaxes(title="Contracted tons", **_ton_ticks(tons.max() if len(tons) else 1))
+    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0, automargin=True)
+    fig.update_layout(
+        barmode="group",
+        title="Contracted volume over time",
+    )
+    fig = style(fig, height=480)
+    fig.update_layout(
+        legend=_legend_below(-0.20),
+        margin=dict(l=88, r=24, t=64, b=96),
+    )
+    return fig
 
 
 def vendor_price(
@@ -437,20 +464,17 @@ def vendor_price(
             connectgaps=False,
             hovertemplate="%{y:$,.2f}/ton<extra>%{fullData.name}</extra>",
         ))
-    fig.update_yaxes(title="USD per short ton", tickprefix="$")
-    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0)
+    fig.update_yaxes(title="USD per short ton", tickprefix="$", title_standoff=18, automargin=True)
+    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0, automargin=True)
     fig.update_layout(
         title=f"{STATE_NAMES.get(state_code, state_code)} — price by supplier",
-        margin=dict(l=56, r=24, t=72, b=48),
     )
-    if state_code == "PA":
-        fig.add_annotation(
-            text="No published supplier award in FY2022–FY2023. First priced year is FY2024 (ARS ~$81.79, Morton ~$80.77).",
-            xref="paper", yref="paper", x=0, y=1.14,
-            showarrow=False, xanchor="left",
-            font=dict(size=11, color="#5C6770"),
-        )
-    return style(fig)
+    fig = style(fig, height=500)
+    fig.update_layout(
+        legend=_legend_below(-0.22),
+        margin=dict(l=88, r=24, t=64, b=112),
+    )
+    return fig
 
 
 def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual") -> go.Figure:
@@ -464,13 +488,19 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
             marker_color=VENDOR_COLORS.get(vendor, "#9AA3B2"),
             hovertemplate="%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
-    fig.update_yaxes(title="Contracted tons", tickformat=",.0f")
-    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0)
+    tons = pd.to_numeric(g["contracted_tons"], errors="coerce") if not g.empty else pd.Series(dtype=float)
+    fig.update_yaxes(title="Contracted tons", **_ton_ticks(tons.max() if len(tons) else 1))
+    fig.update_xaxes(title=None, tickangle=-45 if grain == "quarter" else 0, automargin=True)
     fig.update_layout(
         barmode="stack",
         title=f"{STATE_NAMES.get(state_code, state_code)} — volume by supplier",
     )
-    return style(fig)
+    fig = style(fig, height=500)
+    fig.update_layout(
+        legend=_legend_below(-0.22),
+        margin=dict(l=88, r=24, t=64, b=112),
+    )
+    return fig
 
 
 def vendor_share(vendor_df: pd.DataFrame, state_code: str) -> go.Figure:
@@ -487,16 +517,18 @@ def vendor_share(vendor_df: pd.DataFrame, state_code: str) -> go.Figure:
             fillcolor=VENDOR_COLORS.get(vendor, "#9AA3B2"),
             hovertemplate="%{y:.1%}<extra>%{fullData.name}</extra>",
         ))
-    fig.update_yaxes(title="Share of attributed volume", tickformat=".0%", range=[0, 1])
-    fig.update_xaxes(title="Fiscal year")
-    fig.update_layout(title=f"{STATE_NAMES.get(state_code, state_code)} — supplier share")
-    fig = style(fig, height=440)
+    fig.update_yaxes(
+        title="Share", tickformat=".0%", range=[0, 1],
+        title_standoff=18, automargin=True,
+    )
+    fig.update_xaxes(title=None, automargin=True)
     fig.update_layout(
-        legend=dict(
-            orientation="h", yanchor="top", y=-0.22, x=0, xanchor="left",
-            title=None, font=dict(size=12),
-        ),
-        margin=dict(l=56, r=24, t=48, b=96),
+        title=f"{STATE_NAMES.get(state_code, state_code)} — supplier share",
         hovermode="closest",
+    )
+    fig = style(fig, height=480)
+    fig.update_layout(
+        legend=_legend_below(-0.24),
+        margin=dict(l=72, r=24, t=72, b=112),
     )
     return fig

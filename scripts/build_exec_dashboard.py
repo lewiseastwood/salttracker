@@ -115,6 +115,7 @@ def main() -> None:
   .exports button.secondary, .exports a.secondary {{ background:#fff; color:var(--navy); border:1px solid var(--navy); }}
   .table-wrap {{ overflow:auto; border:1px solid var(--line); border-radius:8px; }}
   .note {{ color:var(--muted); font-size:0.85rem; margin-top:24px; }}
+  p.note[data-panel] {{ margin: 6px 0 16px; }}
   @media (max-width: 900px) {{ .grid, .grid3 {{ grid-template-columns:1fr; }} .wrap, header {{ padding-left:18px; padding-right:18px; }} }}
 </style>
 </head>
@@ -143,8 +144,10 @@ def main() -> None:
   </div>
 
   <div class="card wide" data-panel="all">{plots['price_ts_all']}</div>
+  <p class="note" data-panel="all">Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years. Both states post delivered $/ton (not FOB); programs still differ, so the MI–PA gap is not a like-for-like bid.</p>
   <div class="card wide" data-panel="MI">{plots['price_ts_MI']}</div>
   <div class="card wide" data-panel="PA">{plots['price_ts_PA']}</div>
+  <p class="note" data-panel="PA">Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years.</p>
   <div class="grid">
     <div class="card" data-panel="all">{plots['share_MI']}</div>
     <div class="card" data-panel="all">{plots['share_PA']}</div>

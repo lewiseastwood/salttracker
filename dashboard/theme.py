@@ -31,19 +31,31 @@ TEMPLATE = go.layout.Template(
         paper_bgcolor=WHITE,
         plot_bgcolor=WHITE,
         colorway=list(VENDOR_COLORS.values()),
-        margin=dict(l=56, r=24, t=56, b=48),
+        margin=dict(l=80, r=40, t=64, b=88),
         hovermode="x unified",
         hoverlabel=dict(bgcolor=WHITE, font_size=12, font_family="Georgia, serif"),
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0, title=None,
-                    font=dict(size=12)),
-        xaxis=dict(showgrid=False, linecolor=LINE, ticks="outside", tickcolor=LINE),
-        yaxis=dict(gridcolor=LINE, zeroline=False, linecolor=LINE),
-        title=dict(font=dict(size=16, color=NAVY), x=0, xanchor="left"),
+        legend=dict(orientation="h", yanchor="top", y=-0.18, x=0, xanchor="left",
+                    title=None, font=dict(size=12), bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(showgrid=False, linecolor=LINE, ticks="outside", tickcolor=LINE,
+                   automargin=True, title_standoff=12),
+        yaxis=dict(gridcolor=LINE, zeroline=False, linecolor=LINE,
+                   automargin=True, title_standoff=18),
+        title=dict(font=dict(size=16, color=NAVY), x=0, xanchor="left",
+                   y=0.99, yref="container", yanchor="top", pad=dict(t=12, b=6)),
     )
 )
 pio.templates["salttracker"] = TEMPLATE
 
+LEGEND_BELOW = dict(
+    orientation="h", yanchor="top", y=-0.18, x=0, xanchor="left",
+    title=None, font=dict(size=12), bgcolor="rgba(0,0,0,0)",
+)
 
-def style(fig: go.Figure, height: int = 420) -> go.Figure:
+
+def style(fig: go.Figure, height: int = 420, *, legend: str = "below") -> go.Figure:
     fig.update_layout(template="salttracker", height=height)
+    if legend == "below" and fig.layout.showlegend is not False:
+        fig.update_layout(legend=LEGEND_BELOW)
+    elif legend == "none":
+        fig.update_layout(showlegend=False)
     return fig

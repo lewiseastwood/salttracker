@@ -318,6 +318,10 @@ with st.expander("How to read this"):
     )
 
 st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")
+st.caption(
+    "Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years. "
+    "Both states post delivered $/ton (not FOB); programs still differ, so the MI–PA gap is not a like-for-like bid."
+)
 
 share_cols = st.columns(len(sel_states))
 for i, code in enumerate(sel_states):
@@ -338,7 +342,8 @@ value_fmt = st.column_config.NumberColumn(format="$%.0f")
 
 with tab_compare:
     st.caption(
-        "One chart per state. Detroit Salt is Michigan-only; it will not appear on the Pennsylvania figure."
+        "One chart per state. Detroit Salt is Michigan-only; it will not appear on the Pennsylvania figure. "
+        "Bars are omitted where contracted tonnage was not published (Pennsylvania FY2025 renewal)."
     )
     for code in sel_states:
         st.plotly_chart(
@@ -347,6 +352,11 @@ with tab_compare:
         )
     for code in sel_states:
         st.plotly_chart(charts.vendor_price(v, metric, code, grain), width="stretch")
+        if code == "PA":
+            st.caption(
+                "No published supplier award in FY2022–FY2023. First priced year is FY2024 "
+                "(American Rock Salt ~$81.79, Morton ~$80.77)."
+            )
 
 with tab_suppliers:
     for code in sel_states:
