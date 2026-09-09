@@ -15,8 +15,13 @@ PEAK_MONTHS = (6, 7, 8)
 STALE_PEAK = timedelta(days=3)
 STALE_OFFSEASON = timedelta(days=10)
 
-# Detector kinds. Copy is built from these fields, not from invented notice IDs.
-DETECTOR_KINDS = ("new-season", "new-supplier", "new-document")
+# Detector kinds shown on the watch strip. Failures are included so a
+# zero-row parse or empty DTMB listing cannot read as a quiet week.
+DETECTOR_KINDS = (
+    "new-season", "new-supplier", "new-document",
+    "parse-failed", "listing-empty", "listing-unfetched", "download-failed",
+)
+FAILED_STATUSES = frozenset({"empty", "error", "parse-failed", "discovery-failed"})
 
 
 def load_jsonl(path: str | Path) -> list[dict]:
@@ -82,6 +87,14 @@ def alert_phrase(alert: dict) -> str:
         return alert.get("detail") or "new-supplier"
     if kind == "new-document":
         return alert.get("detail") or "new-document"
+    if kind == "parse-failed":
+        return alert.get("detail") or "a contract PDF produced no rows"
+    if kind == "listing-empty":
+        return alert.get("detail") or "Michigan DTMB listing had no contract PDFs"
+    if kind == "listing-unfetched":
+        return alert.get("detail") or "Michigan DTMB salt page could not be fetched"
+    if kind == "download-failed":
+        return alert.get("detail") or "a listed Michigan contract PDF did not download"
     return alert.get("detail") or kind or "change"
 
 
@@ -119,19 +132,24 @@ def watch_strip(
     age = now - checked
     stale = age >= stale_after(now)
 
-    if status == "empty":
+    if status in FAILED_STATUSES:
+        if phrases:
+            n = len(phrases)
+            noun = "change" if n == 1 else "changes"
+            headline = f"{n} {noun} since last refresh: " + "; ".join(phrases) + "."
+        elif status == "parse-failed":
+            headline = "A contract PDF did not parse."
+        elif status == "discovery-failed":
+            headline = "Michigan DTMB listing returned no contract PDFs."
+        elif status == "empty":
+            headline = "Last refresh parsed no rows."
+        else:
+            headline = "Last refresh failed."
         return {
             "tone": "failed",
-            "headline": "Last refresh parsed no rows.",
+            "headline": headline,
             "checked": f"Last checked {checked_label}.",
-            "phrases": [],
-        }
-    if status == "error":
-        return {
-            "tone": "failed",
-            "headline": "Last refresh failed.",
-            "checked": f"Last checked {checked_label}.",
-            "phrases": [],
+            "phrases": phrases,
         }
 
     if phrases:

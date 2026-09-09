@@ -83,8 +83,10 @@ come from the Wayback Machine (`sources.py:discover_michigan_archived`).
 
 The durable schedule is **GitHub Actions** (`.github/workflows/refresh.yml`).
 It is on `main` and armed: daily at 11:15 UTC in June–August, Mondays otherwise.
-Each successful run writes CSVs and `watch_state.json` back to the repo so
-Streamlit Cloud rebuilds. Slack/email alerts are optional secrets:
+Each scrape attempt — including a failed listing or parse — commits
+`watch_state.json` so the dashboard strip is not a stale quiet week, and so
+GitHub does not disable the schedule after 60 days of no commits. CSVs update
+when the export completes. Slack/email alerts are optional secrets:
 
 | Secret | Purpose |
 |---|---|

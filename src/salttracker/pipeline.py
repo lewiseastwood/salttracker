@@ -20,7 +20,7 @@ import hashlib
 import json
 import os
 import pickle
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -60,6 +60,7 @@ class BuildResult:
     state_fy_vendor: pd.DataFrame
     state_fy: pd.DataFrame
     diagnostics: pd.DataFrame
+    parse_yields: list[dict] = field(default_factory=list)
 
 
 # --------------------------------------------------------------------------
@@ -74,14 +75,37 @@ def _cache_key(path: str, tag: str) -> str:
     return os.path.join(CACHE_DIR, hashlib.sha1(sig.encode()).hexdigest() + ".pkl")
 
 
-def parse_michigan_docs(paths: dict[str, str | None]) -> pd.DataFrame:
+def _yield_record(path: str, state: str, kind: str, n_rows: int,
+                  error: str | None = None) -> dict:
+    return {
+        "path": path,
+        "name": os.path.basename(path),
+        "state": state,
+        "kind": kind,
+        "n_rows": n_rows,
+        "error": error,
+    }
+
+
+def pa_doc_kind(path: str) -> str:
+    name = os.path.basename(path).lower()
+    if "estimates" in name:
+        return "estimates"
+    if "bidsheet" in name or "bid_sheet" in name or "bid-sheet" in name:
+        return "bidsheet"
+    return "award"
+
+
+def parse_michigan_docs(paths: dict[str, str | None]) -> tuple[pd.DataFrame, list[dict]]:
     """Parse Michigan PDFs. ``paths`` maps file path -> default vendor (or None).
 
     These contracts run to hundreds of pages, so parsed output is cached against
-    the file's size and mtime.
+    the file's size and mtime. A file that exists but yields no award rows is
+    recorded so the refresh can fail loud instead of looking like a quiet week.
     """
     os.makedirs(CACHE_DIR, exist_ok=True)
     rows = []
+    yields: list[dict] = []
     for path, vendor in paths.items():
         if not os.path.exists(path):
             continue
@@ -94,18 +118,23 @@ def parse_michigan_docs(paths: dict[str, str | None]) -> pd.DataFrame:
         # The cache is keyed on the file only; the vendor default is applied
         # afterwards so vendor-mapping changes don't force a re-parse.
         cache = _cache_key(path, "mi-v4")
-        if os.path.exists(cache):
-            with open(cache, "rb") as fh:
-                parsed = pickle.load(fh)
-        else:
-            parsed = mi_parser.parse(path)
-            with open(cache, "wb") as fh:
-                pickle.dump(parsed, fh)
+        try:
+            if os.path.exists(cache):
+                with open(cache, "rb") as fh:
+                    parsed = pickle.load(fh)
+            else:
+                parsed = mi_parser.parse(path)
+                with open(cache, "wb") as fh:
+                    pickle.dump(parsed, fh)
+        except Exception as exc:
+            yields.append(_yield_record(path, "MI", "award", 0, type(exc).__name__))
+            continue
 
         if vendor is None:
             vendor = mi_parser.detect_vendor(path)
 
         parsed = mi_parser.select_current(parsed)
+        yields.append(_yield_record(path, "MI", "award", len(parsed)))
         for r in parsed:
             if r.vendor is None:
                 r.vendor = vendor
@@ -118,15 +147,23 @@ def parse_michigan_docs(paths: dict[str, str | None]) -> pd.DataFrame:
                 tons_basis=r.tons_source, change_notice=r.change_notice,
                 entity=r.entity,
             ))
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), yields
 
 
-def parse_pennsylvania_docs(paths: list[str]) -> pd.DataFrame:
+def parse_pennsylvania_docs(paths: list[str]) -> tuple[pd.DataFrame, list[dict]]:
     rows = []
+    yields: list[dict] = []
     for path in paths:
         if not os.path.exists(path):
             continue
-        for r in pa_parser.parse(path):
+        kind = pa_doc_kind(path)
+        try:
+            parsed = pa_parser.parse(path)
+        except Exception as exc:
+            yields.append(_yield_record(path, "PA", kind, 0, type(exc).__name__))
+            continue
+        yields.append(_yield_record(path, "PA", kind, len(parsed)))
+        for r in parsed:
             rows.append(dict(
                 state="PA", fiscal_year=r.fy, vendor=r.vendor, county=r.county,
                 program="Statewide Contract", channel="PennDOT / COSTARS",
@@ -137,7 +174,7 @@ def parse_pennsylvania_docs(paths: list[str]) -> pd.DataFrame:
                 source_page=r.page, tons_basis="printed", change_notice=None,
                 entity=None,
             ))
-    return pd.DataFrame(rows)
+    return pd.DataFrame(rows), yields
 
 
 def parse_pa_estimates(paths: list[str]) -> pd.DataFrame:
@@ -390,9 +427,10 @@ def normalize(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
     out = out[out["fiscal_year"].notna()]
     out["fiscal_year"] = out["fiscal_year"].astype(int)
-    out = out[(out["fiscal_year"] >= HISTORICAL_FY_RANGE[0]) & (out["fiscal_year"] <= CURRENT_FY)]
+    out = out[out["fiscal_year"] >= HISTORICAL_FY_RANGE[0]]
     out["season"] = out["fiscal_year"].map(lambda fy: f"{fy - 1}/{fy}")
-    out["is_current_cycle"] = out["fiscal_year"] == CURRENT_FY
+    latest = int(out["fiscal_year"].max()) if not out.empty else CURRENT_FY
+    out["is_current_cycle"] = out["fiscal_year"] == latest
     out = out[out["vendor"].notna()]
     for col in RAW_COLUMNS:
         if col not in out.columns:
@@ -505,8 +543,11 @@ def export(result: BuildResult, out_dir: str = "data/output") -> dict[str, str]:
 def build(mi_docs: dict[str, str | None], pa_docs: list[str],
           pa_estimate_docs: list[str] | None = None,
           manifest_path: str = "data/manifest.json") -> BuildResult:
-    frames = [parse_michigan_docs(mi_docs), parse_pennsylvania_docs(pa_docs)]
-    combined = pd.concat([f for f in frames if not f.empty], ignore_index=True)
+    mi_frame, mi_yields = parse_michigan_docs(mi_docs)
+    pa_frame, pa_yields = parse_pennsylvania_docs(pa_docs)
+    frames = [mi_frame, pa_frame]
+    nonempty = [f for f in frames if not f.empty]
+    combined = pd.concat(nonempty, ignore_index=True) if nonempty else pd.DataFrame()
     combined = dedupe_schedules(combined)
     combined = resolve_pa_awards(combined)
     combined = attach_pa_volume(combined, parse_pa_estimates(pa_estimate_docs or []))
@@ -515,4 +556,5 @@ def build(mi_docs: dict[str, str | None], pa_docs: list[str],
     raw = normalize(combined)
     by_vendor, by_state = aggregate(raw)
     return BuildResult(raw=raw, state_fy_vendor=by_vendor, state_fy=by_state,
-                       diagnostics=diagnostics(raw))
+                       diagnostics=diagnostics(raw),
+                       parse_yields=mi_yields + pa_yields)

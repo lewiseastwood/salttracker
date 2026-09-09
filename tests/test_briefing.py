@@ -60,6 +60,32 @@ def test_strip_failed_is_not_nothing_new():
     assert "No new seasons" not in strip["headline"]
 
 
+def test_strip_parse_failed_is_not_quiet_week():
+    stamp = "2026-08-12T07:15:00"
+    watch = {"last_run": stamp, "last_status": "parse-failed"}
+    alerts = [{
+        "ts": stamp, "kind": "parse-failed", "state": "MI",
+        "detail": "MI: MI_FY2028_x.pdf produced no contract rows — parser may not match this layout",
+    }]
+    strip = briefing.watch_strip(watch, alerts, now=datetime(2026, 8, 12, 8, 16, 0))
+    assert strip["tone"] == "failed"
+    assert "No new seasons" not in strip["headline"]
+    assert "produced no contract rows" in strip["headline"]
+
+
+def test_strip_discovery_failed_is_not_quiet_week():
+    stamp = "2026-08-12T07:15:00"
+    watch = {"last_run": stamp, "last_status": "discovery-failed"}
+    alerts = [{
+        "ts": stamp, "kind": "listing-empty", "state": "MI",
+        "detail": "Michigan DTMB listing had no contract PDFs",
+    }]
+    strip = briefing.watch_strip(watch, alerts, now=datetime(2026, 8, 12, 8, 16, 0))
+    assert strip["tone"] == "failed"
+    assert "No new seasons" not in strip["headline"]
+    assert "DTMB listing" in strip["headline"]
+
+
 def test_strip_stale_keeps_quiet_headline_but_flags_age():
     watch = {"last_run": "2026-08-20T07:15:00", "last_status": "ok"}
     strip = briefing.watch_strip(watch, [], now=NOW)

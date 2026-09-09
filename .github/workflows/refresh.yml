@@ -77,18 +77,20 @@ jobs:
             extra+=(--no-archive)
           fi
           python scripts/refresh.py "${extra[@]}"
-          python scripts/build_exec_dashboard.py
 
+      - name: Build dashboard pack
+        # Rebuild even on a failed scrape so the HTML strip matches watch_state.
+        # CSVs on disk are last-good coverage; continue if the pack cannot build.
+        if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
+        continue-on-error: true
+        run: python scripts/build_exec_dashboard.py
+
+      # Commit on success and on failure. A red Monday that does not push is
+      # repository silence; GitHub disables scheduled workflows after 60 days
+      # of that, and June arrives with no scraper.
       - name: Persist outputs
-        if: steps.refresh.outcome == 'success'
+        if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
         run: |
           git config user.name "salttracker-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/output data/watch_state.json data/alerts.jsonl data/manifest.json data/refresh_log.jsonl data/interim/pa_sid_scan.json || true
-          if git diff --cached --quiet; then
-            echo "No dataset change"
-          else
-            git commit -m "Refresh contract dataset $(date -u +%Y-%m-%d)"
-            git pull --rebase origin HEAD
-            git push
-          fi
+          bash scripts/persist_refresh.sh

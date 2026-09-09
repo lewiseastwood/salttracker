@@ -16,8 +16,15 @@ from email.message import EmailMessage
 from .sources import UA
 
 
+FAIL_KINDS = frozenset({"parse-failed", "listing-empty", "listing-unfetched",
+                        "download-failed"})
+
+
 def alert_body(alerts: list[dict]) -> str:
-    lines = ["New road-salt contract data was published:", ""]
+    failed = any(a.get("kind") in FAIL_KINDS for a in alerts)
+    header = ("SaltTracker refresh failed:" if failed
+              else "New road-salt contract data was published:")
+    lines = [header, ""]
     for a in alerts:
         lines.append(f"- [{a['kind']}] {a['detail']}")
     lines.append("")
@@ -35,13 +42,16 @@ def post_webhook(url: str, payload: dict, timeout: int = 20) -> str:
         return f"webhook {resp.status}"
 
 
-def send_email(alerts_text: str, count: int) -> str:
+def send_email(alerts_text: str, count: int, failed: bool = False) -> str:
     to = os.environ.get("SALTTRACKER_ALERT_EMAIL", "").strip()
     host = os.environ.get("SALTTRACKER_SMTP_HOST", "").strip()
     if not (to and host):
         raise RuntimeError("SALTTRACKER_ALERT_EMAIL and SALTTRACKER_SMTP_HOST required")
     msg = EmailMessage()
-    msg["Subject"] = f"SaltTracker: {count} new contract signal(s)"
+    msg["Subject"] = (
+        f"SaltTracker: refresh failed ({count} signal(s))"
+        if failed else f"SaltTracker: {count} new contract signal(s)"
+    )
     msg["From"] = os.environ.get("SALTTRACKER_SMTP_FROM", to)
     msg["To"] = to
     msg.set_content(alerts_text)
@@ -71,7 +81,10 @@ def dispatch(alerts: list[dict], stamp: str) -> list[str]:
             notes.append(f"webhook failed: {exc}")
     if os.environ.get("SALTTRACKER_ALERT_EMAIL") and os.environ.get("SALTTRACKER_SMTP_HOST"):
         try:
-            notes.append(send_email(payload["text"], len(alerts)))
+            notes.append(send_email(
+                payload["text"], len(alerts),
+                failed=any(a.get("kind") in FAIL_KINDS for a in alerts),
+            ))
         except (OSError, smtplib.SMTPException, RuntimeError) as exc:
             notes.append(f"email failed: {exc}")
     return notes

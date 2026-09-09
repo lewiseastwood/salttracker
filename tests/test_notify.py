@@ -23,6 +23,16 @@ def test_alert_body_lists_each_signal():
     ])
     assert "PA FY2028" in text
     assert "x.pdf" in text
+    assert "New road-salt contract data was published" in text
+
+
+def test_alert_body_for_parse_failure_is_not_a_publication_notice():
+    text = alert_body([
+        {"kind": "parse-failed", "detail": "MI: FY2028.pdf produced no contract rows"},
+    ])
+    assert "refresh failed" in text
+    assert "produced no contract rows" in text
+    assert "New road-salt contract data was published" not in text
 
 
 def test_dispatch_is_a_noop_without_config(monkeypatch):
