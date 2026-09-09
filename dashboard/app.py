@@ -7,6 +7,7 @@ from __future__ import annotations
 import io
 import os
 from datetime import date
+from html import escape
 
 import pandas as pd
 import streamlit as st
@@ -15,6 +16,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils.dataframe import dataframe_to_rows
 
 import charts
+import briefing
 from theme import STATE_NAMES
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -22,6 +24,8 @@ OUT_DIR = os.path.join(ROOT, "data", "output")
 VENDOR_CSV = os.path.join(OUT_DIR, "salt_contracts_by_vendor.csv")
 STATE_CSV = os.path.join(OUT_DIR, "salt_contracts_by_state.csv")
 RAW_CSV = os.path.join(OUT_DIR, "salt_contracts_raw.csv")
+WATCH_STATE = os.path.join(ROOT, "data", "watch_state.json")
+ALERTS_JSONL = os.path.join(ROOT, "data", "alerts.jsonl")
 
 st.set_page_config(
     page_title="Road Salt Contracts | Michigan & Pennsylvania",
@@ -46,6 +50,25 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-family: "Libre 
 .masthead .title { font-family: "Libre Baskerville", Georgia, serif; font-size: 1.55rem; color: #1B3A4B; }
 .masthead .meta { color: #5C6770; font-size: 0.85rem; }
 .note { color: #5C6770; font-size: 0.85rem; margin-top: 4px; }
+.watch { display: flex; justify-content: space-between; gap: 16px; align-items: baseline;
+         flex-wrap: wrap; background: #fff; border: 1px solid #D7DCE0; border-radius: 8px;
+         padding: 10px 14px; margin-bottom: 16px; }
+.watch.news { border-left: 4px solid #1B3A4B; }
+.watch.quiet { border-left: 4px solid #D7DCE0; }
+.watch.stale, .watch.failed, .watch.missing { border-left: 4px solid #C45C26; }
+.watch-line { color: #1A2332; font-size: 0.95rem; }
+.watch-meta { color: #5C6770; font-size: 0.82rem; white-space: nowrap; }
+.cov-wrap { margin-bottom: 12px; }
+.cov-title { font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.06em; color: #5C6770; margin-bottom: 6px; }
+table.cov { border-collapse: collapse; width: 100%; font-size: 0.8rem; }
+table.cov th, table.cov td { border: 1px solid #D7DCE0; padding: 4px 6px; text-align: center; }
+table.cov th:first-child { text-align: left; font-weight: 600; white-space: nowrap; }
+table.cov td { width: 2.4rem; }
+table.cov td span { display: block; width: 14px; height: 14px; margin: 0 auto; border-radius: 2px; }
+table.cov td.cov-both span { background: #1B3A4B; }
+table.cov td.cov-partial span { background: #1B3A4B; opacity: 0.35; }
+table.cov td.cov-empty span { background: transparent; border: 1px solid #D7DCE0; }
+.cov-key { color: #5C6770; font-size: 0.8rem; margin-top: 8px; }
 .stTabs [data-baseweb="tab-list"] { gap: 8px; }
 .stTabs [data-baseweb="tab"] { font-weight: 600; }
 footer { visibility: hidden; }
@@ -169,6 +192,15 @@ st.markdown(
     f"""<div class="masthead">
       <div class="title">Road salt contract tracker</div>
       <div class="meta">Michigan · Pennsylvania &nbsp;|&nbsp; {n_docs} source documents &nbsp;|&nbsp; Updated {retrieved_label}</div>
+    </div>""",
+    unsafe_allow_html=True,
+)
+
+watch = briefing.watch_strip(briefing.load_watch(WATCH_STATE), briefing.load_jsonl(ALERTS_JSONL))
+st.markdown(
+    f"""<div class="watch {watch['tone']}">
+      <div class="watch-line">{escape(watch['headline'])}</div>
+      <div class="watch-meta">{escape(watch['checked'])}</div>
     </div>""",
     unsafe_allow_html=True,
 )
@@ -322,6 +354,18 @@ st.caption(
     "Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years. "
     "Both states post delivered $/ton (not FOB); programs still differ, so the MI–PA gap is not a like-for-like bid."
 )
+
+with st.expander("Coverage by supplier and year", expanded=False):
+    st.caption(
+        "Filled = price and volume. Half-tone = one of the two is published. "
+        "Empty = nothing in the documents. "
+        "Volume, no award is Pennsylvania county estimates with no named supplier."
+    )
+    cov_cols = st.columns(len(sel_states))
+    for i, code in enumerate(sel_states):
+        grid = briefing.coverage_grid(v, code)
+        with cov_cols[i]:
+            st.markdown(briefing.coverage_table_html(grid), unsafe_allow_html=True)
 
 share_cols = st.columns(len(sel_states))
 for i, code in enumerate(sel_states):

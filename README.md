@@ -81,14 +81,14 @@ come from the Wayback Machine (`sources.py:discover_michigan_archived`).
 
 ## Automation
 
-The durable schedule is **GitHub Actions** (`.github/workflows/refresh.yml`), not
-a laptop `launchd` job. It runs daily at 11:15 UTC during June–August and on
-Mondays the rest of the year, writes the dataset back to the repo, and fires
-alerts off-box. Push this project to GitHub and set repository secrets:
+The durable schedule is **GitHub Actions** (`.github/workflows/refresh.yml`).
+It is on `main` and armed: daily at 11:15 UTC in June–August, Mondays otherwise.
+Each successful run writes CSVs and `watch_state.json` back to the repo so
+Streamlit Cloud rebuilds. Slack/email alerts are optional secrets:
 
 | Secret | Purpose |
 |---|---|
-| `SALTTRACKER_CONTACT` | Real mailbox or repo URL placed in the crawler `User-Agent` |
+| `SALTTRACKER_CONTACT` | Mailbox in the crawler `User-Agent` (defaults to this repo URL) |
 | `SALTTRACKER_WEBHOOK_URL` | Slack / Teams / generic POST when a new season or document appears |
 | `SALTTRACKER_ALERT_EMAIL` | Optional; also set `SALTTRACKER_SMTP_HOST` / `_USER` / `_PASS` |
 

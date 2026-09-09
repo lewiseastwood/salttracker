@@ -1,9 +1,11 @@
-# Durable refresh: runs on GitHub, not on a laptop that may be asleep in June.
+# Unattended scrape: daily in June–August, Mondays otherwise.
+# GitHub does not fire a new scheduled workflow until it has run once — use
+# "Run workflow" (workflow_dispatch) after the first push. Cron is 11:15 UTC
+# (07:15 Eastern during EDT). Off-season weekdays start the job then skip the
+# crawl so the schedule stays armed.
 #
-# Daily during the June–August award window, Mondays otherwise. A run that
-# finds nothing new is cheap (content-hashed downloads, checkpointed SID scan).
-# Set repository secrets:
-#   SALTTRACKER_CONTACT       mailbox or repo URL put in the crawler User-Agent
+# Optional repository secrets (scrape works without them):
+#   SALTTRACKER_CONTACT       mailbox; otherwise the public repo URL is used
 #   SALTTRACKER_WEBHOOK_URL   Slack/Teams/generic POST for new-season alerts
 #   SALTTRACKER_ALERT_EMAIL   optional, requires the SMTP_* secrets below
 #   SALTTRACKER_SMTP_HOST / SALTTRACKER_SMTP_USER / SALTTRACKER_SMTP_PASS
@@ -11,12 +13,15 @@ name: Refresh salt contracts
 
 on:
   schedule:
-    # 11:15 UTC ≈ 07:15 Eastern during EDT (the June–August window).
     - cron: "15 11 * * *"
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
 
 jobs:
   refresh:
@@ -32,6 +37,12 @@ jobs:
       - name: Install
         run: pip install -r requirements.txt
 
+      - name: Cache downloaded contract files
+        uses: actions/cache@v4
+        with:
+          path: data/raw
+          key: salt-raw-${{ runner.os }}-v1
+
       - name: Decide how far to crawl
         id: window
         run: |
@@ -46,10 +57,11 @@ jobs:
           else
             echo "peak=0" >> "$GITHUB_OUTPUT"
             echo "scan=0" >> "$GITHUB_OUTPUT"
-            echo "Off-season weekday — skip. Re-run Monday or via workflow_dispatch."
+            echo "Off-season weekday — skip the crawl. Monday or Run workflow still scrapes."
           fi
 
       - name: Refresh
+        id: refresh
         if: steps.window.outputs.scan == '1' || github.event_name == 'workflow_dispatch'
         env:
           SALTTRACKER_CONTACT: ${{ secrets.SALTTRACKER_CONTACT }}
@@ -65,9 +77,10 @@ jobs:
             extra+=(--no-archive)
           fi
           python scripts/refresh.py "${extra[@]}"
+          python scripts/build_exec_dashboard.py
 
       - name: Persist outputs
-        if: steps.window.outputs.scan == '1' || github.event_name == 'workflow_dispatch'
+        if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
         run: |
           git config user.name "salttracker-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -76,5 +89,6 @@ jobs:
             echo "No dataset change"
           else
             git commit -m "Refresh contract dataset $(date -u +%Y-%m-%d)"
+            git pull --rebase origin HEAD
             git push
           fi

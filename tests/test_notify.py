@@ -12,6 +12,7 @@ from salttracker.sources import UA, REQUESTS_PER_SECOND
 def test_user_agent_does_not_impersonate_a_browser():
     assert "SaltTracker/" in UA
     assert "Mozilla" not in UA
+    assert "github.com/lewiseastwood/salttracker" in UA
     assert REQUESTS_PER_SECOND <= 3
 
 

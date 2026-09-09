@@ -56,17 +56,18 @@ def save_state(state: dict) -> None:
         json.dump(state, fh, indent=2, sort_keys=True)
 
 
-def raise_alerts(alerts: list[dict]) -> None:
+def raise_alerts(alerts: list[dict], stamp: str) -> None:
     """Record and print anything that a person should look at.
 
     A scheduled run is only useful if it says something when the picture
     changes, so newly published seasons, suppliers and documents are surfaced
-    rather than being buried in the diff of an output file.
+    rather than being buried in the diff of an output file. The dashboard
+    strip reads alerts whose ts matches watch_state last_run, so this
+    stamp must be the same value written there.
     """
     if not alerts:
         return
     os.makedirs(os.path.dirname(ALERTS), exist_ok=True)
-    stamp = dt.datetime.now().isoformat(timespec="seconds")
     with open(ALERTS, "a") as fh:
         for a in alerts:
             fh.write(json.dumps({"ts": stamp, **a}) + "\n")
@@ -82,8 +83,18 @@ def raise_alerts(alerts: list[dict]) -> None:
         print(f"  {note}")
 
 
-def detect_changes(result, docs: list) -> list[dict]:
-    """Compare this run's coverage against the last run's."""
+def stamp_run(stamp: str, status: str, snapshot: dict | None = None) -> None:
+    """Every attempt writes last_run so a quiet strip is not 'we didn't check'."""
+    state = load_state()
+    if snapshot:
+        state.update(snapshot)
+    state["last_run"] = stamp
+    state["last_status"] = status
+    save_state(state)
+
+
+def detect_changes(result, docs: list) -> tuple[list[dict], dict]:
+    """Compare this run's coverage against the last run's. Does not stamp last_run."""
     previous = load_state()
     raw = result.raw
     coverage = {
@@ -107,16 +118,15 @@ def detect_changes(result, docs: list) -> list[dict]:
         seen = set(previous.get("vendors", {}).get(state, []))
         for name in names:
             if seen and name not in seen:
-                alerts.append({"kind": "new-supplier", "state": state,
+                alerts.append({"kind": "new-supplier", "state": state, "vendor": name,
                                "detail": f"{state}: {name} not seen in earlier runs"})
     for name in doc_names:
         if previous.get("documents") and name not in set(previous["documents"]):
             alerts.append({"kind": "new-document",
                            "detail": f"newly published document: {name}"})
 
-    save_state({"coverage": coverage, "vendors": vendors, "documents": doc_names,
-                "last_run": dt.datetime.now().isoformat(timespec="seconds")})
-    return alerts
+    snapshot = {"coverage": coverage, "vendors": vendors, "documents": doc_names}
+    return alerts, snapshot
 
 
 def acquire(include_archive: bool, scan_emarketplace: bool = True) -> list[sources.Doc]:
@@ -200,6 +210,15 @@ def main() -> int:
         print(f"Note: month {month} is in the June-August contracting window; "
               "new awards for the next winter are likely to appear.")
 
+    stamp = dt.datetime.now().isoformat(timespec="seconds")
+    try:
+        return _run(args, stamp)
+    except Exception:
+        stamp_run(stamp, "error")
+        raise
+
+
+def _run(args: argparse.Namespace, stamp: str) -> int:
     docs: list[sources.Doc] = []
     if not args.no_download:
         docs = acquire(include_archive=not args.no_archive,
@@ -215,6 +234,7 @@ def main() -> int:
     if result.raw.empty:
         print("ERROR: no rows parsed.")
         log({"event": "build", "status": "empty"})
+        stamp_run(stamp, "empty")
         return 1
 
     paths = export(result)
@@ -226,7 +246,9 @@ def main() -> int:
     for k, p in paths.items():
         print(f"  {k:12s} {p}")
 
-    raise_alerts(detect_changes(result, docs))
+    alerts, snapshot = detect_changes(result, docs)
+    stamp_run(stamp, "ok", snapshot)
+    raise_alerts(alerts, stamp)
 
     log({"event": "build", "status": "ok", "rows": int(len(result.raw)),
          "states": sorted(result.raw["state"].unique().tolist()),

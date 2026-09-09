@@ -22,16 +22,19 @@ from dataclasses import asdict, dataclass, field
 
 import requests
 
-# Identify the crawler honestly. Set SALTTRACKER_CONTACT to a real mailbox
-# (or a repo URL) so an operator at DTMB / DGS can reach the person running it.
-CONTACT = os.environ.get("SALTTRACKER_CONTACT", "").strip()
+# Identify the crawler honestly. Override with SALTTRACKER_CONTACT (mailbox
+# or a repo URL). Unattended runs fall back to this public repo so DTMB / DGS
+# can still see who is fetching.
+CONTACT = os.environ.get("SALTTRACKER_CONTACT", "").strip() or (
+    "https://github.com/lewiseastwood/salttracker"
+)
 _ua = ["SaltTracker/1.0", "(academic public-records research"]
 if CONTACT:
     _ua.append(f"; +{CONTACT}")
 _ua.append(")")
 UA = "".join(_ua)
 HEADERS = {"User-Agent": UA, "Accept": "*/*"}
-if CONTACT and "@" in CONTACT and " " not in CONTACT:
+if "@" in CONTACT and " " not in CONTACT:
     HEADERS["From"] = CONTACT
 
 # Politeness budget for the state servers. A few requests per second, not a

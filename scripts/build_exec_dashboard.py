@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from html import escape as htmlesc
 
 import pandas as pd
 import plotly.io as pio
@@ -18,6 +19,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "dashboard"))
 
 import charts  # noqa: E402
+import briefing  # noqa: E402
 from theme import STATE_NAMES  # noqa: E402
 
 OUT = os.path.join(ROOT, "data", "output")
@@ -37,6 +39,15 @@ def main() -> None:
     if os.path.exists(raw_path):
         n_docs = pd.read_csv(raw_path, usecols=["source_doc"])["source_doc"].nunique()
     named = vendor[vendor["is_attributed"]].copy()
+
+    watch = briefing.watch_strip(
+        briefing.load_watch(os.path.join(ROOT, "data", "watch_state.json")),
+        briefing.load_jsonl(os.path.join(ROOT, "data", "alerts.jsonl")),
+    )
+    cov = {
+        "MI": briefing.coverage_table_html(briefing.coverage_grid(vendor, "MI")),
+        "PA": briefing.coverage_table_html(briefing.coverage_grid(vendor, "PA")),
+    }
 
     plots = {
         "price_ts_all": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
@@ -116,6 +127,27 @@ def main() -> None:
   .table-wrap {{ overflow:auto; border:1px solid var(--line); border-radius:8px; }}
   .note {{ color:var(--muted); font-size:0.85rem; margin-top:24px; }}
   p.note[data-panel] {{ margin: 6px 0 16px; }}
+  .watch {{ display:flex; justify-content:space-between; gap:16px; align-items:baseline;
+           flex-wrap:wrap; background:#fff; border:1px solid var(--line); border-radius:8px;
+           padding:10px 14px; margin-bottom:16px; }}
+  .watch.news {{ border-left:4px solid var(--navy); }}
+  .watch.quiet {{ border-left:4px solid var(--line); }}
+  .watch.stale, .watch.failed, .watch.missing {{ border-left:4px solid #C45C26; }}
+  .watch-line {{ font-size:0.95rem; }}
+  .watch-meta {{ color:var(--muted); font-size:0.82rem; }}
+  .cov-panel {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:0 0 16px; }}
+  .cov-panel summary {{ cursor:pointer; font-weight:600; color:var(--navy); }}
+  .cov-key {{ color:var(--muted); font-size:0.8rem; margin:8px 0 12px; }}
+  .cov-wrap {{ margin-bottom:12px; }}
+  .cov-title {{ font-size:0.78rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); margin-bottom:6px; }}
+  table.cov {{ width:auto; background:#fff; }}
+  table.cov th, table.cov td {{ background:#fff; color:var(--ink); border:1px solid var(--line); padding:4px 6px; text-align:center; }}
+  table.cov th:first-child {{ text-align:left; white-space:nowrap; }}
+  table.cov td span {{ display:block; width:14px; height:14px; margin:0 auto; border-radius:2px; }}
+  table.cov td.cov-both span {{ background:var(--navy); }}
+  table.cov td.cov-partial span {{ background:var(--navy); opacity:0.35; }}
+  table.cov td.cov-empty span {{ background:transparent; border:1px solid var(--line); }}
+  table.cov tr:hover td {{ background:#fff; }}
   @media (max-width: 900px) {{ .grid, .grid3 {{ grid-template-columns:1fr; }} .wrap, header {{ padding-left:18px; padding-right:18px; }} }}
 </style>
 </head>
@@ -143,11 +175,31 @@ def main() -> None:
     </div>
   </div>
 
+  <div class="watch {watch['tone']}">
+    <div class="watch-line">{htmlesc(watch['headline'])}</div>
+    <div class="watch-meta">{htmlesc(watch['checked'])}</div>
+  </div>
+
   <div class="card wide" data-panel="all">{plots['price_ts_all']}</div>
   <p class="note" data-panel="all">Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years. Both states post delivered $/ton (not FOB); programs still differ, so the MI–PA gap is not a like-for-like bid.</p>
   <div class="card wide" data-panel="MI">{plots['price_ts_MI']}</div>
   <div class="card wide" data-panel="PA">{plots['price_ts_PA']}</div>
   <p class="note" data-panel="PA">Pennsylvania FY2022–FY2023: volume is published without a supplier award, so there is no PA price those years.</p>
+  <details class="cov-panel" data-panel="all">
+    <summary>Coverage by supplier and year</summary>
+    <p class="cov-key">Filled = price and volume. Half-tone = one of the two is published. Empty = nothing in the documents. Volume, no award is Pennsylvania county estimates with no named supplier.</p>
+    <div class="grid">{cov['MI']}{cov['PA']}</div>
+  </details>
+  <details class="cov-panel" data-panel="MI">
+    <summary>Coverage by supplier and year</summary>
+    <p class="cov-key">Filled = price and volume. Half-tone = one of the two is published. Empty = nothing in the documents.</p>
+    {cov['MI']}
+  </details>
+  <details class="cov-panel" data-panel="PA">
+    <summary>Coverage by supplier and year</summary>
+    <p class="cov-key">Filled = price and volume. Half-tone = one of the two is published. Empty = nothing in the documents. Volume, no award is Pennsylvania county estimates with no named supplier.</p>
+    {cov['PA']}
+  </details>
   <div class="grid">
     <div class="card" data-panel="all">{plots['share_MI']}</div>
     <div class="card" data-panel="all">{plots['share_PA']}</div>
