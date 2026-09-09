@@ -158,7 +158,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-f1, f2, f3, f4, f5 = st.columns([1.3, 1.6, 1, 1, 1.6])
+f1, f2, f3, f4, f5, f6 = st.columns([1.3, 1.5, 0.85, 0.85, 1.2, 1.6])
 with f1:
     state_label = st.selectbox("State", ["Both states", "Michigan", "Pennsylvania"])
 with f2:
@@ -168,10 +168,13 @@ with f3:
 with f4:
     fy_to = st.selectbox("To", fys, index=len(fys) - 1)
 with f5:
+    period_label = st.radio("Period", ["Annual", "Quarter"], horizontal=True)
+with f6:
     price_label = st.selectbox(
         "Price basis",
         ["Weighted (revenue ÷ volume)", "Unweighted average of posted prices"],
     )
+grain = "quarter" if period_label == "Quarter" else "annual"
 
 if fy_from > fy_to:
     fy_from, fy_to = fy_to, fy_from
@@ -260,7 +263,8 @@ st.markdown(
     '<p class="note">Michigan and Pennsylvania only. Fiscal years run 1 Oct – 30 Sep and are named for the year they end. '
     "Price is the volume-weighted average unless you switch the basis. "
     "FY2027 is the awarded upcoming winter, not delivered volume. "
-    "PA FY2022–FY2023 volume has no published supplier award and is held out of share.</p>",
+    "PA FY2022–FY2023 volume has no published supplier award and is held out of share. "
+    "Quarterly view places each annual award in Q1 (Oct–Dec); Q2–Q4 are blank because the states do not publish quarterly contracted tons or prices.</p>",
     unsafe_allow_html=True,
 )
 
@@ -270,13 +274,12 @@ if latest_fy == 2027:
 m1, m2, m3 = st.columns(3)
 with m1:
     st.plotly_chart(charts.state_overview_map(s), width="stretch")
-    st.caption("Only Michigan and Pennsylvania are in this tracker.")
 with m2:
     st.plotly_chart(charts.vendor_bubbles(v), width="stretch")
 with m3:
     st.plotly_chart(charts.vendor_price_bars(v, metric), width="stretch")
 
-st.plotly_chart(charts.volume_price_comparison(v, metric), width="stretch")
+st.plotly_chart(charts.volume_price_comparison(v, metric, grain), width="stretch")
 
 st.caption("Download the current filters as tables. Full tables are also on the last tab.")
 x1, x2, x3, x4 = st.columns(4)
@@ -308,14 +311,14 @@ share_fmt = st.column_config.NumberColumn(format="%.1%")
 value_fmt = st.column_config.NumberColumn(format="$%.0f")
 
 with tab_price:
-    st.plotly_chart(charts.price_timeseries(s, metric), width="stretch")
+    st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")
     for code in sel_states:
-        st.plotly_chart(charts.vendor_price(v, metric, code), width="stretch")
+        st.plotly_chart(charts.vendor_price(v, metric, code, grain), width="stretch")
 
 with tab_vol:
-    st.plotly_chart(charts.volume_timeseries(s), width="stretch")
+    st.plotly_chart(charts.volume_timeseries(s, grain), width="stretch")
     for code in sel_states:
-        st.plotly_chart(charts.vendor_volume(v, code), width="stretch")
+        st.plotly_chart(charts.vendor_volume(v, code, grain), width="stretch")
 
 with tab_share:
     st.caption("Share of volume that names a supplier. Unattributed PA years are omitted.")

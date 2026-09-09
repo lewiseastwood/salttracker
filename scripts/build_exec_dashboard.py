@@ -35,22 +35,24 @@ def main() -> None:
     named = vendor[vendor["is_attributed"]].copy()
 
     plots = {
-        "compare_all": fig_html(charts.volume_price_comparison(named, "weighted_avg_price")),
+        "compare_all_annual": fig_html(charts.volume_price_comparison(named, "weighted_avg_price", "annual")),
+        "compare_all_quarter": fig_html(charts.volume_price_comparison(named, "weighted_avg_price", "quarter")),
         "map_all": fig_html(charts.state_overview_map(state)),
         "bubbles_all": fig_html(charts.vendor_bubbles(named)),
         "bars_all": fig_html(charts.vendor_price_bars(named, "weighted_avg_price")),
-        "price_all": fig_html(charts.price_timeseries(state, "weighted_avg_price")),
-        "volume_all": fig_html(charts.volume_timeseries(state)),
+        "price_all": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
+        "volume_all": fig_html(charts.volume_timeseries(state, "annual")),
     }
     for code in ("MI", "PA"):
         sub = named[named["state"] == code]
         st_sub = state[state["state"] == code]
-        plots[f"compare_{code}"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price"))
+        plots[f"compare_{code}_annual"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "annual"))
+        plots[f"compare_{code}_quarter"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "quarter"))
         plots[f"map_{code}"] = fig_html(charts.state_overview_map(st_sub))
         plots[f"bubbles_{code}"] = fig_html(charts.vendor_bubbles(sub))
         plots[f"bars_{code}"] = fig_html(charts.vendor_price_bars(sub, "weighted_avg_price"))
-        plots[f"price_{code}"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code))
-        plots[f"vol_{code}"] = fig_html(charts.vendor_volume(vendor[vendor["state"] == code], code))
+        plots[f"price_{code}"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "annual"))
+        plots[f"vol_{code}"] = fig_html(charts.vendor_volume(vendor[vendor["state"] == code], code, "annual"))
         plots[f"share_{code}"] = fig_html(charts.vendor_share(named, code))
 
     table_rows = []
@@ -89,10 +91,15 @@ def main() -> None:
   header {{ background:var(--navy); color:#fff; padding:22px 40px; }}
   header h1 {{ font-family: Georgia, serif; font-size:1.5rem; margin:0; font-weight:700; }}
   header p {{ margin:6px 0 0; color:#c9d4dc; font-size:0.9rem; }}
-  .wrap {{ max-width:1200px; margin:0 auto; padding:24px 40px 48px; }}
-  .filters {{ display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }}
+  .wrap {{ max-width:1400px; margin:0 auto; padding:24px 40px 48px; }}
+  .filters {{ display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; align-items:flex-end; }}
   .filters label {{ font-size:0.75rem; text-transform:uppercase; letter-spacing:0.06em; color:var(--muted); display:block; margin-bottom:4px; }}
   select {{ font: inherit; padding:8px 10px; border:1px solid var(--line); border-radius:6px; background:#fff; min-width:180px; }}
+  .seg {{ display:flex; gap:0; border:1px solid var(--navy); border-radius:6px; overflow:hidden; }}
+  .seg label {{ margin:0; text-transform:none; letter-spacing:0; font-size:0.85rem; color:var(--navy); padding:8px 14px; cursor:pointer; }}
+  .seg input {{ display:none; }}
+  .seg input:checked + span {{ background:var(--navy); color:#fff; }}
+  .seg span {{ display:block; padding:0; }}
   .grid {{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }}
   .grid3 {{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; }}
   .card {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:8px; }}
@@ -125,6 +132,13 @@ def main() -> None:
         <option value="PA">Pennsylvania</option>
       </select>
     </div>
+    <div>
+      <label>Period</label>
+      <div class="seg">
+        <label><input type="radio" name="grain" value="annual" checked><span>Annual</span></label>
+        <label><input type="radio" name="grain" value="quarter"><span>Quarter</span></label>
+      </div>
+    </div>
   </div>
 
   <div class="grid3">
@@ -138,9 +152,12 @@ def main() -> None:
     <div class="card" data-panel="MI">{plots['bars_MI']}</div>
     <div class="card" data-panel="PA">{plots['bars_PA']}</div>
   </div>
-  <div class="card wide" data-panel="all" style="margin-top:16px">{plots['compare_all']}</div>
-  <div class="card wide" data-panel="MI">{plots['compare_MI']}</div>
-  <div class="card wide" data-panel="PA">{plots['compare_PA']}</div>
+  <div class="card wide" data-panel="all" data-grain="annual" style="margin-top:16px">{plots['compare_all_annual']}</div>
+  <div class="card wide" data-panel="all" data-grain="quarter">{plots['compare_all_quarter']}</div>
+  <div class="card wide" data-panel="MI" data-grain="annual">{plots['compare_MI_annual']}</div>
+  <div class="card wide" data-panel="MI" data-grain="quarter">{plots['compare_MI_quarter']}</div>
+  <div class="card wide" data-panel="PA" data-grain="annual">{plots['compare_PA_annual']}</div>
+  <div class="card wide" data-panel="PA" data-grain="quarter">{plots['compare_PA_quarter']}</div>
   <h2>Over time</h2>
   <div class="grid">
     <div class="card" data-panel="all">{plots['price_all']}</div>
@@ -173,7 +190,7 @@ def main() -> None:
     <tbody></tbody>
   </table>
   </div>
-  <p class="note">CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter.</p>
+  <p class="note">CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec); Q2–Q4 are blank because the states do not publish quarterly contracted tons or prices.</p>
 </div>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
@@ -182,11 +199,16 @@ const stateRows = {json.dumps(state_rows)};
 const tbody = document.querySelector("#tbl tbody");
 const tbodyS = document.querySelector("#tbl-state tbody");
 const sel = document.getElementById("state");
+const grainInputs = document.querySelectorAll("input[name=grain]");
 function fmtTons(n) {{ return n == null ? "—" : n.toLocaleString("en-US", {{maximumFractionDigits: 0}}); }}
 function fmtMoney(n) {{ return n == null ? "—" : "$" + n.toLocaleString("en-US", {{minimumFractionDigits: 2, maximumFractionDigits: 2}}); }}
 function fmtValue(n) {{ return n == null ? "—" : "$" + n.toLocaleString("en-US", {{maximumFractionDigits: 0}}); }}
 function fmtShare(n) {{ return n == null ? "—" : (n * 100).toFixed(1) + "%"; }}
 function stateName(code) {{ return code === "MI" ? "Michigan" : "Pennsylvania"; }}
+function grainValue() {{
+  const checked = document.querySelector("input[name=grain]:checked");
+  return checked ? checked.value : "annual";
+}}
 function visible(list) {{
   const v = sel.value;
   if (v === "all") return list;
@@ -195,9 +217,13 @@ function visible(list) {{
 }}
 function paint() {{
   const v = sel.value;
+  const grain = grainValue();
   document.querySelectorAll("[data-panel]").forEach(el => {{
     const p = el.getAttribute("data-panel");
-    el.style.display = (v === "all" || p === "all" || p === v) ? "" : "none";
+    const g = el.getAttribute("data-grain");
+    const panelOk = v === "all" ? p === "all" : p === v;
+    const grainOk = !g || g === grain;
+    el.style.display = (panelOk && grainOk) ? "" : "none";
   }});
   tbody.innerHTML = "";
   visible(rows).forEach(r => {{
@@ -257,6 +283,7 @@ function downloadXlsx() {{
   XLSX.writeFile(wb, "salt_contract_tables.xlsx");
 }}
 sel.addEventListener("change", paint);
+grainInputs.forEach(el => el.addEventListener("change", paint));
 paint();
 </script>
 </body>
