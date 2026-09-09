@@ -82,11 +82,11 @@ come from the Wayback Machine (`sources.py:discover_michigan_archived`).
 ## Automation
 
 The durable schedule is **GitHub Actions** (`.github/workflows/refresh.yml`).
-It is on `main` and armed: daily at 11:15 UTC in June–August, Mondays otherwise.
-Each scrape attempt — including a failed listing or parse — commits
-`watch_state.json` so the dashboard strip is not a stale quiet week, and so
-GitHub does not disable the schedule after 60 days of no commits. CSVs update
-when the export completes. Slack/email alerts are optional secrets:
+Cadence is two UTC cron fields: daily at 11:15 UTC (07:15 Eastern / EDT) in
+June–August, Mondays otherwise. Each scrape attempt — including a failed listing
+or parse — commits `watch_state.json` so the dashboard strip is not a stale quiet
+week, and so GitHub does not disable the schedule after 60 days of no commits.
+CSVs update when the export completes. Slack/email alerts are optional secrets:
 
 | Secret | Purpose |
 |---|---|
@@ -94,17 +94,13 @@ when the export completes. Slack/email alerts are optional secrets:
 | `SALTTRACKER_WEBHOOK_URL` | Slack / Teams / generic POST when a new season or document appears |
 | `SALTTRACKER_ALERT_EMAIL` | Optional; also set `SALTTRACKER_SMTP_HOST` / `_USER` / `_PASS` |
 
-Local laptop scheduling is still available if you want it, but it will not
-survive nine months of a closed lid:
-
-```bash
-./scripts/install_schedule.sh           # optional local fallback
-./scripts/install_schedule.sh --status
-```
-
 The crawler identifies itself as `SaltTracker/1.0 (academic public-records
 research; +<contact>)` and is capped at **2 requests/second**
-(`SALTTRACKER_RPS`). It does not impersonate a browser.
+(`SALTTRACKER_RPS`). Every request to michigan.gov, pa.gov, and eMarketplace
+goes through `sources.http_get`. It does not impersonate a browser.
+
+Do not install a local LaunchAgent. `./scripts/install_schedule.sh` refuses
+and will only `--remove` a leftover plist.
 
 **Discovery is not pinned to today's URLs**, because next year's packet will be
 published at an address that does not exist yet. Each run:
@@ -228,7 +224,7 @@ src/salttracker/
   parsers/pennsylvania.py DGS/COSTARS county pricing
 dashboard/app.py          Streamlit dashboard
 scripts/refresh.py        end-to-end refresh
-scripts/install_schedule.sh  launchd scheduling
+scripts/persist_refresh.sh  commit scrape outputs including failures
 tests/test_validation.py  document-anchored validation
 data/raw/                 downloaded source documents (by state)
 data/output/              CSV + Excel deliverables

@@ -1,19 +1,21 @@
-# Unattended scrape: daily in June–August, Mondays otherwise.
+# Unattended scrape. GitHub cron is UTC. 07:15 Eastern in June–August is EDT
+# (UTC-4), so 07:15 ET = 11:15 UTC. Cadence is two cron month fields, not a
+# date guard that starts the job and skips the crawl.
+#
 # GitHub does not fire a new scheduled workflow until it has run once — use
-# "Run workflow" (workflow_dispatch) after the first push. Cron is 11:15 UTC
-# (07:15 Eastern during EDT). Off-season weekdays start the job then skip the
-# crawl so the schedule stays armed.
+# "Run workflow" (workflow_dispatch) after the first push.
 #
 # Optional repository secrets (scrape works without them):
 #   SALTTRACKER_CONTACT       mailbox; otherwise the public repo URL is used
-#   SALTTRACKER_WEBHOOK_URL   Slack/Teams/generic POST for new-season alerts
+#   SALTTRACKER_WEBHOOK_URL  Slack/Teams/generic POST for new-season alerts
 #   SALTTRACKER_ALERT_EMAIL   optional, requires the SMTP_* secrets below
 #   SALTTRACKER_SMTP_HOST / SALTTRACKER_SMTP_USER / SALTTRACKER_SMTP_PASS
 name: Refresh salt contracts
 
 on:
   schedule:
-    - cron: "15 11 * * *"
+    - cron: "15 11 * 6,7,8 *"
+    - cron: "15 11 * 1,2,3,4,5,9,10,11,12 1"
   workflow_dispatch:
 
 permissions:
@@ -43,26 +45,8 @@ jobs:
           path: data/raw
           key: salt-raw-${{ runner.os }}-v1
 
-      - name: Decide how far to crawl
-        id: window
-        run: |
-          month=$(date -u +%m)
-          dow=$(date -u +%u)
-          if [ "$month" = "06" ] || [ "$month" = "07" ] || [ "$month" = "08" ]; then
-            echo "peak=1" >> "$GITHUB_OUTPUT"
-            echo "scan=1" >> "$GITHUB_OUTPUT"
-          elif [ "$dow" = "1" ]; then
-            echo "peak=0" >> "$GITHUB_OUTPUT"
-            echo "scan=1" >> "$GITHUB_OUTPUT"
-          else
-            echo "peak=0" >> "$GITHUB_OUTPUT"
-            echo "scan=0" >> "$GITHUB_OUTPUT"
-            echo "Off-season weekday — skip the crawl. Monday or Run workflow still scrapes."
-          fi
-
       - name: Refresh
         id: refresh
-        if: steps.window.outputs.scan == '1' || github.event_name == 'workflow_dispatch'
         env:
           SALTTRACKER_CONTACT: ${{ secrets.SALTTRACKER_CONTACT }}
           SALTTRACKER_WEBHOOK_URL: ${{ secrets.SALTTRACKER_WEBHOOK_URL }}
@@ -73,21 +57,21 @@ jobs:
           SALTTRACKER_RPS: "2"
         run: |
           extra=()
-          if [ "${{ steps.window.outputs.peak }}" != "1" ]; then
+          month=$(date -u +%m)
+          # Wayback is extra history, not cadence. Skip it off-season.
+          if [ "$month" != "06" ] && [ "$month" != "07" ] && [ "$month" != "08" ]; then
             extra+=(--no-archive)
           fi
           python scripts/refresh.py "${extra[@]}"
 
       - name: Build dashboard pack
         # Rebuild even on a failed scrape so the HTML strip matches watch_state.
-        # CSVs on disk are last-good coverage; continue if the pack cannot build.
         if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
         continue-on-error: true
         run: python scripts/build_exec_dashboard.py
 
-      # Commit on success and on failure. A red Monday that does not push is
-      # repository silence; GitHub disables scheduled workflows after 60 days
-      # of that, and June arrives with no scraper.
+      # Commit on success and on failure. last_run always changes, so this is
+      # the 60-day keepalive. A red Monday with no push disables cron in 60 days.
       - name: Persist outputs
         if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
         run: |

@@ -31,7 +31,7 @@ def test_fetch_listing_empty_page_is_empty_not_seeded(monkeypatch):
     class Resp:
         text = "<html><body>Salt, Bulk Rock — no files</body></html>"
 
-    monkeypatch.setattr(sources, "_get", lambda *_a, **_k: Resp())
+    monkeypatch.setattr(sources, "http_get", lambda *_a, **_k: (Resp(), 200))
     docs, status = sources.fetch_michigan_listing()
     assert status == "empty"
     assert docs == []
@@ -39,7 +39,7 @@ def test_fetch_listing_empty_page_is_empty_not_seeded(monkeypatch):
 
 
 def test_fetch_listing_unfetched_is_not_ok(monkeypatch):
-    monkeypatch.setattr(sources, "_get", lambda *_a, **_k: None)
+    monkeypatch.setattr(sources, "http_get", lambda *_a, **_k: (None, 403))
     docs, status = sources.fetch_michigan_listing()
     assert status == "unfetched"
     assert docs == []

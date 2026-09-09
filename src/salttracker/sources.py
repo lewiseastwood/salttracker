@@ -19,8 +19,7 @@ import os
 import re
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 import requests
 
@@ -42,6 +41,8 @@ if "@" in CONTACT and " " not in CONTACT:
 # Politeness budget for the state servers. A few requests per second, not a
 # burst scan: eMarketplace and DTMB are public indexes, not an API we own.
 REQUESTS_PER_SECOND = float(os.environ.get("SALTTRACKER_RPS", "2"))
+# Retry these; a 403 from a GitHub runner is an IP block, not a blip.
+RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 SCAN_WORKERS = 1
 
 
@@ -139,23 +140,41 @@ class Doc:
 # --------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------
-def _get(url: str, timeout: int = 180, tries: int = 3,
-         params: dict | None = None) -> requests.Response | None:
+def http_get(url: str, timeout: int = 180, tries: int = 3,
+             params: dict | None = None,
+             session: requests.Session | None = None,
+             ) -> tuple[requests.Response | None, int | None]:
+    """Single throttled GET. Every michigan.gov / pa.gov / eMarketplace fetch uses this.
+
+    Returns (response, status). response is set only on HTTP 200.
+    429 and 5xx retry with backoff. 403 is returned as-is — GitHub runner
+    IPs are often blocked, and retrying that looks like a code bug.
+    """
+    http = session or requests
+    last_status: int | None = None
     for attempt in range(tries):
         _limiter.wait()
         try:
-            r = requests.get(url, headers=HEADERS, timeout=timeout, params=params)
+            r = http.get(url, headers=HEADERS, timeout=timeout, params=params)
+            last_status = r.status_code
             if r.status_code == 200:
-                return r
-            # Back off rather than retry straight into a server that is
-            # rate-limiting or temporarily refusing us.
-            if r.status_code in (403, 429, 503):
+                return r, 200
+            if r.status_code in RETRY_STATUSES and attempt < tries - 1:
                 time.sleep(5.0 * (attempt + 1))
                 continue
+            return None, last_status
         except requests.RequestException:
-            pass
-        time.sleep(1.5 * (attempt + 1))
-    return None
+            if attempt < tries - 1:
+                time.sleep(1.5 * (attempt + 1))
+    return None, last_status
+
+
+def _get(url: str, timeout: int = 180, tries: int = 3,
+         params: dict | None = None,
+         session: requests.Session | None = None) -> requests.Response | None:
+    r, _status = http_get(url, timeout=timeout, tries=tries, params=params,
+                           session=session)
+    return r
 
 
 def download(doc: Doc, root: str) -> Doc | None:
@@ -210,7 +229,8 @@ def fetch_michigan_listing() -> tuple[list[Doc], str]:
     Returns (docs, status) with status ``ok``, ``unfetched`` (page did not load)
     or ``empty`` (page loaded but had no contract PDFs).
     """
-    r = _get(MI_SALT_PAGE, timeout=90)
+    r, status = http_get(MI_SALT_PAGE, timeout=90)
+    print(f"  Michigan DTMB salt page: HTTP {status if status is not None else 'no-response'}")
     if r is None:
         return [], "unfetched"
     docs = _docs_from_michigan_html(r.text)
@@ -305,13 +325,9 @@ _SID_TITLE_RE = re.compile(r'id="ctl00_MainBody_lblBidTitle"[^>]*>([^<]{0,140})'
 
 def pa_solicitation_title(sid: int, session: requests.Session | None = None) -> str | None:
     """Return an eMarketplace solicitation's title, or None if the id is unused."""
-    http = session or requests
-    _limiter.wait()
-    try:
-        r = http.get(f"{PA_EMKT}/Solicitations.aspx?SID={sid}", headers=HEADERS, timeout=25)
-    except requests.RequestException:
-        return None
-    if r.status_code != 200:
+    r, _status = http_get(f"{PA_EMKT}/Solicitations.aspx?SID={sid}", timeout=25,
+                           tries=2, session=session)
+    if r is None:
         return None
     m = _SID_TITLE_RE.search(r.text)
     return m.group(1).strip() if m else None
@@ -344,14 +360,11 @@ def pa_scan_salt_sids(scan_ahead: int = PA_SID_SCAN_AHEAD, state_dir: str | None
     session = requests.Session()
     session.headers.update(HEADERS)
 
-    def probe(sid: int) -> tuple[int, str | None]:
-        return sid, pa_solicitation_title(sid, session)
-
     found = []
-    with ThreadPoolExecutor(workers) as pool:
-        for sid, title in pool.map(probe, range(start, end + 1)):
-            if title and PA_SALT_TITLE_RE.search(title):
-                found.append(sid)
+    for sid in range(start, end + 1):
+        title = pa_solicitation_title(sid, session)
+        if title and PA_SALT_TITLE_RE.search(title):
+            found.append(sid)
 
     salt = sorted(set(known) | set(found))
     if checkpoint:
@@ -398,7 +411,8 @@ def discover_pennsylvania(state_dir: str | None = None, scan_emarketplace: bool 
     """Seed known PA packets, crawl the COSTARS index, and scan eMarketplace."""
     docs = [Doc(state="PA", name=n, url=u, fy=fy, notes="seed") for n, u, fy in PA_SEED_DOCS]
 
-    r = _get(PA_COSTARS_INDEX, timeout=90)
+    r, status = http_get(PA_COSTARS_INDEX, timeout=90)
+    print(f"  Pennsylvania COSTARS index: HTTP {status if status is not None else 'no-response'}")
     if r is not None:
         for url in _pdf_links(r.text, "https://www.pa.gov"):
             if not re.search(r"sodium|salt", url, re.I):

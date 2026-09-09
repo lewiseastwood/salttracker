@@ -6,7 +6,7 @@
     python scripts/refresh.py --no-archive   # skip the Wayback Machine sweep
 
 New contracts are published in the July-August window each year, so during that
-window this should run frequently (see scripts/install_schedule.sh). Documents
+window GitHub Actions runs daily (see .github/workflows/refresh.yml). Documents
 are content-hashed, so re-running is cheap and only changed files are rewritten.
 """
 from __future__ import annotations

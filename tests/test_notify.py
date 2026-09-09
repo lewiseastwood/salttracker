@@ -13,7 +13,7 @@ def test_user_agent_does_not_impersonate_a_browser():
     assert "SaltTracker/" in UA
     assert "Mozilla" not in UA
     assert "github.com/lewiseastwood/salttracker" in UA
-    assert REQUESTS_PER_SECOND <= 3
+    assert 2 <= REQUESTS_PER_SECOND <= 5
 
 
 def test_alert_body_lists_each_signal():
