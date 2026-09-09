@@ -475,10 +475,11 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
 
 def vendor_share(vendor_df: pd.DataFrame, state_code: str) -> go.Figure:
     g = vendor_df[(vendor_df["state"] == state_code) & vendor_df["is_attributed"]].copy()
-    g["fy_label"] = "FY" + g["fiscal_year"].astype(int).astype(str)
-    g = g.sort_values("fiscal_year")
+    g["fy_label"] = "FY " + g["fiscal_year"].astype(int).astype(str)
+    g = g.sort_values(["fiscal_year", "vendor"])
     fig = go.Figure()
     for vendor, vg in g.groupby("vendor"):
+        vg = vg.sort_values("fiscal_year")
         fig.add_trace(go.Scatter(
             x=vg["fy_label"], y=vg["volume_share"], name=_short(vendor),
             mode="lines", stackgroup="one",
@@ -486,7 +487,16 @@ def vendor_share(vendor_df: pd.DataFrame, state_code: str) -> go.Figure:
             fillcolor=VENDOR_COLORS.get(vendor, "#9AA3B2"),
             hovertemplate="%{y:.1%}<extra>%{fullData.name}</extra>",
         ))
-    fig.update_yaxes(title="Share of attributed volume", tickformat=".0%")
+    fig.update_yaxes(title="Share of attributed volume", tickformat=".0%", range=[0, 1])
     fig.update_xaxes(title="Fiscal year")
     fig.update_layout(title=f"{STATE_NAMES.get(state_code, state_code)} — supplier share")
-    return style(fig)
+    fig = style(fig, height=440)
+    fig.update_layout(
+        legend=dict(
+            orientation="h", yanchor="top", y=-0.22, x=0, xanchor="left",
+            title=None, font=dict(size=12),
+        ),
+        margin=dict(l=56, r=24, t=48, b=96),
+        hovermode="closest",
+    )
+    return fig

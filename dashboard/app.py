@@ -27,6 +27,7 @@ st.set_page_config(
     page_title="Road Salt Contracts | Michigan & Pennsylvania",
     layout="wide",
     initial_sidebar_state="collapsed",
+    menu_items={"Get help": None, "Report a bug": None, "About": None},
 )
 
 st.markdown("""
@@ -48,6 +49,13 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-family: "Libre 
 .stTabs [data-baseweb="tab-list"] { gap: 8px; }
 .stTabs [data-baseweb="tab"] { font-weight: 600; }
 footer { visibility: hidden; }
+#MainMenu { visibility: hidden; }
+header[data-testid="stHeader"] { display: none; }
+div[data-testid="stToolbar"] { display: none; }
+div[data-testid="stDecoration"] { display: none; }
+div[data-testid="stStatusWidget"] { display: none; }
+.stDeployButton { display: none; }
+.stAppDeployButton { display: none; }
 </style>
 """, unsafe_allow_html=True)
 
