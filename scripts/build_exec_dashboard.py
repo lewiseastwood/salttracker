@@ -181,7 +181,11 @@ def main() -> None:
   table.cov td.cov-both span {{ background:var(--navy); }}
   table.cov td.cov-partial span {{ background:var(--navy); opacity:0.35; }}
   table.cov td.cov-empty span {{ background:transparent; border:1px solid var(--line); }}
-  table.cov tr:hover td {{ background:#fff; }}
+  table.src {{ width:100%; background:#fff; border-collapse:collapse; font-size:0.9rem; }}
+  table.src th, table.src td {{ background:#fff; color:var(--ink); border:1px solid var(--line); padding:8px 10px; text-align:left; }}
+  table.src th {{ color:var(--muted); font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; }}
+  table.src a {{ color:var(--navy); font-weight:600; text-decoration:none; }}
+  table.src a:hover {{ text-decoration:underline; }}
   @media (max-width: 900px) {{ .grid, .grid3 {{ grid-template-columns:1fr; }} .wrap, header {{ padding-left:18px; padding-right:18px; }} }}
 </style>
 </head>
@@ -387,11 +391,12 @@ function paint() {{
     const years = (r.fy_from && r.fy_to && r.fy_from !== r.fy_to)
       ? ("FY" + r.fy_from + "–FY" + r.fy_to)
       : (r.fy_from ? ("FY" + r.fy_from) : "—");
+    const tip = title.replaceAll("&", "&amp;").replaceAll('"', "&quot;");
     const docCell = r.url
-      ? `<a href="${{r.url}}" target="_blank" rel="noopener">${{title}}</a>`
+      ? `<a href="${{r.url}}" title="${{tip}}" target="_blank" rel="noopener">${{title}}</a>`
       : title;
-    const pdf = r.url ? `<a href="${{r.url}}" target="_blank" rel="noopener">Open</a>` : "—";
-    const listing = r.page_url ? `<a href="${{r.page_url}}" target="_blank" rel="noopener">Open</a>` : "—";
+    const pdf = r.url ? `<a href="${{r.url}}" title="${{tip}}" target="_blank" rel="noopener">Open</a>` : "—";
+    const listing = r.page_url ? `<a href="${{r.page_url}}" title="${{tip}}" target="_blank" rel="noopener">Open</a>` : "—";
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${{r.state}}</td><td>${{docCell}}</td><td>${{years}}</td><td>${{r.suppliers || "—"}}</td><td>${{pdf}}</td><td>${{listing}}</td>`;
     tbodyD.appendChild(tr);

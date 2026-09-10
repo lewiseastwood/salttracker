@@ -69,7 +69,15 @@ table.cov td span { display: block; width: 14px; height: 14px; margin: 0 auto; b
 table.cov td.cov-both span { background: #1B3A4B; }
 table.cov td.cov-partial span { background: #1B3A4B; opacity: 0.35; }
 table.cov td.cov-empty span { background: transparent; border: 1px solid #D7DCE0; }
-.cov-key { color: #5C6770; font-size: 0.8rem; margin-top: 8px; }
+table.src { width:100%; background:#fff; border-collapse:collapse; font-size:0.9rem;
+            border:1px solid #D7DCE0; border-radius:8px; overflow:hidden; }
+table.src th, table.src td { border-bottom:1px solid #D7DCE0; padding:9px 12px; text-align:left;
+                             vertical-align:middle; }
+table.src th { color:#5C6770; font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em;
+               font-weight:600; background:#F4F5F7; }
+table.src td:nth-child(5), table.src td:nth-child(6) { width:4.5rem; }
+table.src a { color:#1B3A4B; font-weight:600; text-decoration:none; }
+table.src a:hover { text-decoration:underline; }
 .stTabs [data-baseweb="tab-list"] { gap: 8px; }
 .stTabs [data-baseweb="tab"] { font-weight: 600; }
 footer { visibility: hidden; }
@@ -299,7 +307,6 @@ line_items = line_items.rename(columns={
 })
 catalog = briefing.source_documents(r)
 catalog_export = briefing.source_table_for_export(catalog)
-catalog_show = briefing.executive_source_table(catalog)
 pack = excel_bytes(
     ("By supplier", by_supplier),
     ("By state", by_state),
@@ -528,16 +535,7 @@ with tab_table:
         )
     if zip_fail:
         st.error("These sources could not be downloaded:\n" + "\n".join(f"- {e}" for e in zip_fail))
-    st.dataframe(
-        catalog_show,
-        width="stretch", height=320, hide_index=True,
-        column_config={
-            "Contract": st.column_config.MarkdownColumn("Contract", width="large"),
-            "Years": st.column_config.TextColumn("Years", width="small"),
-            "PDF": st.column_config.MarkdownColumn("PDF", width="small"),
-            "Listing": st.column_config.MarkdownColumn("Listing", width="small"),
-        },
-    )
+    st.markdown(briefing.executive_source_html(catalog), unsafe_allow_html=True)
 
     st.subheader("By supplier")
     st.dataframe(

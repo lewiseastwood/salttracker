@@ -148,5 +148,6 @@ def test_snap_identity_is_keyed_off_printed_change_notices_not_wayback_dates():
     assert ident["787_snap2026-05.pdf"]["newest_season"] == "2025/2026"
     assert ident["791_snap2023-01.pdf"]["newest_season"] == "2021/2022"
     assert "CN3" in sources.snap_document_label("791_snap2023-01.pdf")
-    assert sources.snap_document_label("PA_FY2024_COSTARS.pdf") == "PA_FY2024_COSTARS.pdf"
+    assert sources.snap_document_label("PA_FY2024_COSTARS.pdf") == "COSTARS FY2024 season contract"
+    assert sources.snap_document_label("PA_FY2025_COSTARS.pdf") == "COSTARS FY2025 season contract"
 

@@ -246,8 +246,32 @@ MI_SNAP_IDENTITY = {
 
 
 def snap_document_label(name: str) -> str:
+    """Short name for executives. Never the raw filename if a label is known."""
     ident = MI_SNAP_IDENTITY.get(name or "")
-    return ident["label"] if ident else str(name or "")
+    if ident:
+        return ident["label"]
+    known = DOCUMENT_LABELS.get(name or "")
+    if known:
+        return known
+    stem = str(name or "")
+    for ext in (".pdf", ".xlsx", ".xls"):
+        if stem.lower().endswith(ext):
+            stem = stem[: -len(ext)]
+            break
+    return stem.replace("_", " ") if stem else str(name or "")
+
+
+DOCUMENT_LABELS = {
+    "PA_FY2024_COSTARS.pdf": "COSTARS FY2024 season contract",
+    "PA_FY2025_COSTARS.pdf": "COSTARS FY2025 season contract",
+    "PA_FY2026_COSTARS_6100053321.pdf": "COSTARS FY2026 season contract",
+    "PA_FY2027_COSTARS_6100065611.pdf": "COSTARS FY2027 season contract",
+    "PA_estimates_FY2022_6100053321.xlsx": "FY2022 estimated requirements",
+    "PA_estimates_FY2023_6100056192.pdf": "FY2023 estimated requirements",
+    "PA_estimates_FY2027_6100065611.pdf": "FY2027 estimated requirements",
+    "MI_FY2027_CompassMinerals_260000000713.pdf": "Compass Minerals FY2027",
+    "MI_FY2027_DetroitSalt_260000000712.pdf": "Detroit Salt FY2027",
+}
 
 
 def _wayback_identity(ts: str, original: str) -> str:

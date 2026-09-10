@@ -158,24 +158,45 @@ def source_table_for_export(catalog: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def executive_source_table(catalog: pd.DataFrame) -> pd.DataFrame:
-    """On-screen table: contract name opens the PDF; no raw URLs or aliases."""
-    rows = []
+def _html_link(text: str, url: str | None, hover: str | None = None) -> str:
+    """Anchor whose tooltip is the clean name, not the URL."""
+    label = html.escape(text)
+    if not url:
+        return label
+    tip = html.escape(hover or text)
+    href = html.escape(url, quote=True)
+    return (
+        f'<a href="{href}" title="{tip}" target="_blank" rel="noopener">{label}</a>'
+    )
+
+
+def executive_source_html(catalog: pd.DataFrame) -> str:
+    """HTML table: hover shows the contract name, not the file URL."""
+    body = []
     for _, row in catalog.iterrows():
         url = _as_url(row.get("source_url"))
         page = _as_url(row.get("source_page_url"))
         label = (row.get("source_label") or row.get("source_doc") or "").strip()
-        rows.append({
-            "State": _state_display(row.get("state")),
-            "Contract": file_markdown_link(label, url) if url else label,
-            "Years": years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to")),
-            "Supplier": row.get("suppliers") or "—",
-            "PDF": file_markdown_link("Open", url) if url else "",
-            "Listing": file_markdown_link("Open", page) if page else "",
-        })
-    return pd.DataFrame(rows, columns=[
-        "State", "Contract", "Years", "Supplier", "PDF", "Listing",
-    ])
+        years = years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to"))
+        supplier = html.escape(row.get("suppliers") or "—")
+        body.append(
+            "<tr>"
+            f"<td>{html.escape(_state_display(row.get('state')))}</td>"
+            f"<td>{_html_link(label, url, hover=label)}</td>"
+            f"<td>{html.escape(years)}</td>"
+            f"<td>{supplier}</td>"
+            f"<td>{_html_link('Open', url, hover=label) if url else '—'}</td>"
+            f"<td>{_html_link('Open', page, hover=label) if page else '—'}</td>"
+            "</tr>"
+        )
+    return (
+        '<table class="src"><thead><tr>'
+        "<th>State</th><th>Contract</th><th>Years</th><th>Supplier</th>"
+        "<th>PDF</th><th>Listing</th>"
+        "</tr></thead><tbody>"
+        + "".join(body)
+        + "</tbody></table>"
+    )
 
 # Same window as the weekly Action: a missed Monday is an outage after 10 days.
 STALE_AFTER = timedelta(days=10)
