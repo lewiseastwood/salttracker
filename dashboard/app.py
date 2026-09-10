@@ -298,25 +298,13 @@ line_items = line_items.rename(columns={
     "tons_basis": "Tons basis",
 })
 catalog = briefing.source_documents(r)
-catalog_view = catalog.copy()
-catalog_view["state"] = catalog_view["state"].map(
-    lambda s: STATE_NAMES.get(s, s) if isinstance(s, str) and len(s) == 2 else s
-)
-catalog_view = catalog_view.rename(columns={
-    "state": "State",
-    "source_doc": "Source document",
-    "source_label": "Document",
-    "fiscal_year_from": "FY from",
-    "fiscal_year_to": "FY to",
-    "suppliers": "Suppliers",
-    "source_url": "Published file URL",
-    "source_page_url": "Source page URL",
-})
+catalog_export = briefing.source_table_for_export(catalog)
+catalog_show = briefing.executive_source_table(catalog)
 pack = excel_bytes(
     ("By supplier", by_supplier),
     ("By state", by_state),
     ("Line items", line_items.head(10_000)),
-    ("Source contracts", catalog_view),
+    ("Source contracts", catalog_export),
 )
 
 latest_fy = int(s["fiscal_year"].max())
@@ -514,17 +502,13 @@ with tab_table:
     )
 
     st.subheader("Source contracts")
-    st.caption(
-        "Each Fetch returns the published file (local disk after a scrape, otherwise "
-        "the file URL). An empty file URL is not a fetch failure: the list below "
-        "separates fetch failed, no direct file but a source page, and provenance unknown."
-    )
+    st.caption("The contract name opens the published PDF. Listing is the agency page from the same capture.")
     c_csv, c_zip = st.columns(2)
     c_csv.download_button(
-        "Contract list · CSV", catalog_view.to_csv(index=False).encode(),
+        "Contract list · CSV", catalog_export.to_csv(index=False).encode(),
         "salt_source_contracts.csv", "text/csv", width="stretch", key="tab_docs_csv",
     )
-    if c_zip.button("Prepare zip of filtered contracts", width="stretch", key="tab_docs_zip_prep"):
+    if c_zip.button("Download PDFs (zip)", width="stretch", key="tab_docs_zip_prep"):
         rows = catalog.to_dict("records")
         blob, failures = downloads.zip_sources(rows)
         st.session_state["source_zip"] = blob
@@ -545,80 +529,15 @@ with tab_table:
     if zip_fail:
         st.error("These sources could not be downloaded:\n" + "\n".join(f"- {e}" for e in zip_fail))
     st.dataframe(
-        catalog_view.assign(**{
-            "Source document": [
-                briefing.file_markdown_link(n, u)
-                for n, u in zip(
-                    catalog_view["Source document"],
-                    catalog_view["Published file URL"],
-                )
-            ],
-            "Document": [
-                briefing.file_markdown_link(n, u)
-                for n, u in zip(
-                    catalog_view["Document"],
-                    catalog_view["Published file URL"],
-                )
-            ],
-            "Published file URL": [
-                briefing.file_markdown_link("Open PDF", u) if briefing._as_url(u) else ""
-                for u in catalog_view["Published file URL"]
-            ],
-            "Source page URL": [
-                briefing.file_markdown_link("Open page", u) if briefing._as_url(u) else ""
-                for u in catalog_view["Source page URL"]
-            ],
-        }),
-        width="stretch", height=280, hide_index=True,
+        catalog_show,
+        width="stretch", height=320, hide_index=True,
         column_config={
-            "Source document": st.column_config.MarkdownColumn("Source document"),
-            "Document": st.column_config.MarkdownColumn("Document"),
-            "Published file URL": st.column_config.MarkdownColumn("Published file URL"),
-            "Source page URL": st.column_config.MarkdownColumn("Source page URL"),
+            "Contract": st.column_config.MarkdownColumn("Contract", width="large"),
+            "Years": st.column_config.TextColumn("Years", width="small"),
+            "PDF": st.column_config.MarkdownColumn("PDF", width="small"),
+            "Listing": st.column_config.MarkdownColumn("Listing", width="small"),
         },
     )
-    st.markdown("**Download each contract**")
-    for i, row in catalog.iterrows():
-        doc = str(row.get("source_doc") or f"contract_{i}")
-        url = downloads.published_link(row.get("source_url"))
-        page = downloads.published_link(row.get("source_page_url"))
-        left, mid, right = st.columns([5, 1.4, 1.6])
-        if url:
-            left.markdown(briefing.file_markdown_link(doc, url))
-        else:
-            left.write(doc)
-        fetch_key = f"doc_fetch_{i}"
-        data_key = f"doc_bytes_{i}"
-        if url:
-            if mid.button("Fetch", key=f"btn_{fetch_key}"):
-                blob, err = downloads.load_source_bytes(
-                    doc, row.get("state"), url, page_url=page,
-                )
-                st.session_state[data_key] = (blob, err, url)
-        elif page:
-            mid.link_button("Source page", page)
-        else:
-            mid.caption("Unknown")
-        stored = st.session_state.get(data_key)
-        if stored:
-            blob, err, fetched_url = stored
-            if err:
-                if "provenance unknown" in err:
-                    right.caption("Provenance unknown")
-                elif "no stable public file URL" in err:
-                    right.caption("No direct file")
-                else:
-                    right.caption("Fetch failed")
-                st.error(err)
-            else:
-                right.download_button(
-                    "Download", blob, file_name=os.path.basename(doc),
-                    mime="application/octet-stream", key=f"dl_{i}",
-                )
-        elif not url and page:
-            right.caption("No direct file")
-        elif not url:
-            right.caption("Provenance unknown")
 
     st.subheader("By supplier")
     st.dataframe(
@@ -650,27 +569,19 @@ with tab_table:
     )
     line_display = line_items.copy()
     if "Source document" in line_display.columns and "Source URL" in line_display.columns:
-        line_display["Source document"] = [
-            briefing.file_markdown_link(n, u)
+        line_display["Source"] = [
+            briefing.file_markdown_link("PDF", u) if briefing._as_url(u) else str(n or "")
             for n, u in zip(line_display["Source document"], line_display["Source URL"])
         ]
-        line_display["Source URL"] = [
-            briefing.file_markdown_link("Open", u) if briefing._as_url(u) else ""
-            for u in line_display["Source URL"]
-        ]
+        line_display = line_display.drop(columns=["Source document", "Source URL"], errors="ignore")
     if "Source page URL" in line_display.columns:
-        line_display["Source page URL"] = [
-            briefing.file_markdown_link("Open page", u) if briefing._as_url(u) else ""
-            for u in line_display["Source page URL"]
-        ]
+        line_display = line_display.drop(columns=["Source page URL"])
     st.dataframe(
         line_display, width="stretch", height=360, hide_index=True,
         column_config={
             tons_col: tons_fmt, "PennDOT tons": tons_fmt, "COSTARS tons": tons_fmt,
             "Non-PennDOT agency tons": tons_fmt, "Price $/ton": money_fmt,
             "Extended value ($)": value_fmt,
-            "Source document": st.column_config.MarkdownColumn("Source document"),
-            "Source URL": st.column_config.MarkdownColumn("Source URL"),
-            "Source page URL": st.column_config.MarkdownColumn("Source page URL"),
+            "Source": st.column_config.MarkdownColumn("Source", width="small"),
         },
     )

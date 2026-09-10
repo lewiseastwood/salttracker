@@ -114,6 +114,69 @@ def document_label(name: str) -> str:
     except ImportError:
         return str(name or "")
 
+
+def _state_display(code: str) -> str:
+    text = str(code or "").strip()
+    if not text:
+        return ""
+    if ", " in text:
+        return ", ".join(STATE_NAMES.get(p.strip(), p.strip()) for p in text.split(","))
+    return STATE_NAMES.get(text, text) if len(text) == 2 else text
+
+
+def years_label(fy_from, fy_to) -> str:
+    try:
+        a = int(fy_from)
+    except (TypeError, ValueError):
+        a = None
+    try:
+        b = int(fy_to)
+    except (TypeError, ValueError):
+        b = None
+    if a and b and a != b:
+        return f"FY{a}–FY{b}"
+    if a:
+        return f"FY{a}"
+    if b:
+        return f"FY{b}"
+    return "—"
+
+
+def source_table_for_export(catalog: pd.DataFrame) -> pd.DataFrame:
+    """Plain columns for CSV/Excel — no markdown."""
+    rows = []
+    for _, row in catalog.iterrows():
+        rows.append({
+            "State": _state_display(row.get("state")),
+            "Contract": row.get("source_label") or row.get("source_doc") or "",
+            "Filename": row.get("source_doc") or "",
+            "Years": years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to")),
+            "Supplier": row.get("suppliers") or "",
+            "PDF URL": _as_url(row.get("source_url")) or "",
+            "Listing URL": _as_url(row.get("source_page_url")) or "",
+        })
+    return pd.DataFrame(rows)
+
+
+def executive_source_table(catalog: pd.DataFrame) -> pd.DataFrame:
+    """On-screen table: contract name opens the PDF; no raw URLs or aliases."""
+    rows = []
+    for _, row in catalog.iterrows():
+        url = _as_url(row.get("source_url"))
+        page = _as_url(row.get("source_page_url"))
+        label = (row.get("source_label") or row.get("source_doc") or "").strip()
+        rows.append({
+            "State": _state_display(row.get("state")),
+            "Contract": file_markdown_link(label, url) if url else label,
+            "Years": years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to")),
+            "Supplier": row.get("suppliers") or "—",
+            "PDF": file_markdown_link("Open", url) if url else "",
+            "Listing": file_markdown_link("Open", page) if page else "",
+        })
+    return pd.DataFrame(rows, columns=[
+        "State", "Contract", "Years", "Supplier", "PDF", "Listing",
+    ])
+
 # Same window as the weekly Action: a missed Monday is an outage after 10 days.
 STALE_AFTER = timedelta(days=10)
 

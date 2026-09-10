@@ -223,6 +223,25 @@ def test_snap_urls_fill_from_wayback_when_csv_blank():
     assert "web.archive.org" in str(row["source_page_url"])
 
 
+def test_executive_source_table_hides_aliases_and_raw_urls():
+    raw = pd.read_csv(RAW_CSV)
+    cat = briefing.source_documents(raw)
+    show = briefing.executive_source_table(cat)
+    assert list(show.columns) == ["State", "Contract", "Years", "Supplier", "PDF", "Listing"]
+    assert "Published file URL" not in show.columns
+    assert "Source document" not in show.columns
+    cargill = show[show["Contract"].str.contains("791") | show["Contract"].str.contains("Cargill") | show["Contract"].str.contains("MA180000000791")]
+    assert not cargill.empty
+    row = show[show["Contract"].str.contains("MA180000000791")].iloc[0]
+    assert "791_snap" not in row["Contract"]
+    assert row["PDF"].startswith("[Open](http")
+    assert row["Listing"].startswith("[Open](http")
+    assert "FY" in row["Years"]
+    export = briefing.source_table_for_export(cat)
+    assert "PDF URL" in export.columns
+    assert export[export["Filename"] == "791_snap2023-01.pdf"]["PDF URL"].iloc[0].startswith("http")
+
+
 def test_volume_label_depends_on_which_states_are_in_view():
     assert briefing.volume_label(pd.DataFrame({"state": ["PA"]})) == "Estimated requirements"
     assert briefing.volume_label(pd.DataFrame({"state": ["MI"]})) == "Contracted tons"

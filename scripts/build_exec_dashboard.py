@@ -295,13 +295,13 @@ def main() -> None:
   </div>
 
   <h2>Source contracts</h2>
-  <p class="note" style="margin-top:0">Published PDFs behind the tables. Open file follows a direct URL. Open source page is the landing page when the file itself is not stably linkable. Provenance unknown means neither was recorded — that is not a fetch failure.</p>
+  <p class="note" style="margin-top:0">Contract names open the published PDF. Listing is the agency page from the same capture.</p>
   <div class="exports">
     <button type="button" onclick="downloadCsv('docs')">Download contract list (CSV)</button>
   </div>
   <div class="table-wrap">
   <table id="tbl-docs">
-    <thead><tr><th>State</th><th>Document</th><th>FY from</th><th>FY to</th><th>Suppliers</th><th>Published file</th></tr></thead>
+    <thead><tr><th>State</th><th>Contract</th><th>Years</th><th>Supplier</th><th>PDF</th><th>Listing</th></tr></thead>
     <tbody></tbody>
   </table>
   </div>
@@ -383,15 +383,17 @@ function paint() {{
   }});
   tbodyD.innerHTML = "";
   visible(docRows).forEach(r => {{
-    let link = "Provenance unknown";
-    if (r.url) link = `<a href="${{r.url}}" target="_blank" rel="noopener">Open file</a>`;
-    else if (r.page_url) link = `<a href="${{r.page_url}}" target="_blank" rel="noopener">Open source page</a>`;
-    const name = r.filename || r.doc || "—";
+    const title = r.doc || r.filename || "—";
+    const years = (r.fy_from && r.fy_to && r.fy_from !== r.fy_to)
+      ? ("FY" + r.fy_from + "–FY" + r.fy_to)
+      : (r.fy_from ? ("FY" + r.fy_from) : "—");
     const docCell = r.url
-      ? `<a href="${{r.url}}" target="_blank" rel="noopener">${{name}}</a>`
-      : name;
+      ? `<a href="${{r.url}}" target="_blank" rel="noopener">${{title}}</a>`
+      : title;
+    const pdf = r.url ? `<a href="${{r.url}}" target="_blank" rel="noopener">Open</a>` : "—";
+    const listing = r.page_url ? `<a href="${{r.page_url}}" target="_blank" rel="noopener">Open</a>` : "—";
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${{r.state}}</td><td>${{docCell}}</td><td>${{r.fy_from || "—"}}</td><td>${{r.fy_to || "—"}}</td><td>${{r.suppliers || "—"}}</td><td>${{link}}</td>`;
+    tr.innerHTML = `<td>${{r.state}}</td><td>${{docCell}}</td><td>${{years}}</td><td>${{r.suppliers || "—"}}</td><td>${{pdf}}</td><td>${{listing}}</td>`;
     tbodyD.appendChild(tr);
   }});
 }}
@@ -416,9 +418,11 @@ function downloadCsv(kind) {{
     return;
   }}
   if (kind === "docs") {{
-    const header = ["State","Document","Filename","FY from","FY to","Suppliers","Published file URL","Source page URL"];
+    const header = ["State","Contract","Filename","Years","Supplier","PDF URL","Listing URL"];
     const lines = [header.join(",")].concat(visible(docRows).map(r =>
-      [r.state, r.doc, r.filename || r.doc, r.fy_from, r.fy_to, r.suppliers, r.url, r.page_url].map(csvEscape).join(",")));
+      [r.state, r.doc, r.filename || r.doc,
+       (r.fy_from && r.fy_to && r.fy_from !== r.fy_to) ? ("FY" + r.fy_from + "–FY" + r.fy_to) : (r.fy_from ? ("FY" + r.fy_from) : ""),
+       r.suppliers, r.url, r.page_url].map(csvEscape).join(",")));
     saveBlob("salt_source_contracts.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
     return;
   }}
@@ -445,10 +449,9 @@ function downloadXlsx() {{
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sup), "By supplier");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(st), "By state");
   const docs = visible(docRows).map(r => ({{
-    "State": r.state, "Source document": r.doc, "Filename": r.filename || r.doc,
-    "FY from": r.fy_from,
-    "FY to": r.fy_to, "Suppliers": r.suppliers,
-    "Published file URL": r.url, "Source page URL": r.page_url,
+    "State": r.state, "Contract": r.doc, "Filename": r.filename || r.doc,
+    "Years": (r.fy_from && r.fy_to && r.fy_from !== r.fy_to) ? ("FY" + r.fy_from + "–FY" + r.fy_to) : (r.fy_from ? ("FY" + r.fy_from) : ""),
+    "Supplier": r.suppliers, "PDF URL": r.url, "Listing URL": r.page_url,
   }}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(docs), "Source contracts");
   XLSX.writeFile(wb, "salt_contract_tables.xlsx");
