@@ -3,10 +3,12 @@ from __future__ import annotations
 
 import html
 import json
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote
 
 import pandas as pd
 
@@ -97,22 +99,117 @@ def file_markdown_link(name: str | None, url: str | None) -> str:
     return f"[{safe}]({href})"
 
 
+def clickable_url(url: str | None) -> str | None:
+    """Make a Wayback href that Streamlit's HTML sanitizer will keep.
+
+    Identity URLs are ``…/web/{timestamp}id_/https://…`` (no slash before
+    ``id_``). Streamlit drops nested-scheme hrefs, which is why Michigan
+    snaps rendered as "—".
+    """
+    href = _as_url(url)
+    if not href:
+        return None
+    href = re.sub(r"(https://web\.archive\.org/web/\d+)id_/", r"\1/", href)
+    m = re.match(r"^(https://web\.archive\.org/web/\d+/)(https://.+)$", href)
+    if m and "%3A" not in m.group(2):
+        return m.group(1) + quote(m.group(2), safe="")
+    return href
+
+
+# Viewer URLs (no id_) plus labels so the table does not depend on salttracker.sources.
+_MI_SALT_LISTING = (
+    "https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program"
+    "/mideal-contract-search/categories/folder-2/salt-bulk-rock"
+)
+_MI_SNAPS = {
+    "768_snap2023-01.pdf": (
+        "20230127073006", "006/180000000768",
+        "MA180000000768 CN13 · option year 2023/2024 (effective 20 Jun 2023)",
+    ),
+    "787_snap2023-01.pdf": (
+        "20230127073006", "004/180000000787",
+        "MA180000000787 CN9 · option year 2023/2024 (effective 20 Jun 2023)",
+    ),
+    "791_snap2023-01.pdf": (
+        "20230127073006", "004/180000000791",
+        "MA180000000791 CN3 · 2021/2022 pricing (effective 1 Sep 2021; expires 31 Aug 2023)",
+    ),
+    "768_snap2025-04.pdf": (
+        "20250418052020", "006/180000000768",
+        "MA180000000768 CN16 · mid-season amendment of 2024/2025 (effective 23 Sep 2024)",
+    ),
+    "787_snap2025-04.pdf": (
+        "20250418052020", "004/180000000787",
+        "MA180000000787 CN12 · mid-season amendment of 2024/2025 (effective 16 Sep 2024)",
+    ),
+    "768_snap2026-05.pdf": (
+        "20260520035130", "006/180000000768",
+        "MA180000000768 CN17 · option year 2025/2026 (effective 29 Jul 2025)",
+    ),
+    "787_snap2026-05.pdf": (
+        "20260520035130", "004/180000000787",
+        "MA180000000787 CN13 · option year 2025/2026 (effective 29 Jul 2025)",
+    ),
+}
+
+
+def _snap_pdf_page(name: str) -> tuple[str | None, str | None, str | None]:
+    rec = _MI_SNAPS.get(str(name) or "")
+    if not rec:
+        return None, None, None
+    ts, media, label = rec
+    original = (
+        "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/"
+        f"Procurement/Contracts/MiDEAL-Media/{media}.pdf"
+    )
+    pdf = f"https://web.archive.org/web/{ts}/{original}"
+    page = f"https://web.archive.org/web/{ts}/{_MI_SALT_LISTING}"
+    return pdf, page, label
+
+
 def provenance_urls(name: str) -> tuple[str | None, str | None]:
-    """Wayback file + listing page for a Michigan snap alias, if known."""
+    """Wayback file + listing page for a Michigan snap alias."""
+    pdf, page, _ = _snap_pdf_page(name)
+    if pdf:
+        return pdf, page
     try:
         from salttracker.sources import known_local_provenance
     except ImportError:
         return None, None
     rec = known_local_provenance().get(str(name) or "") or {}
-    return rec.get("url"), rec.get("page_url")
+    return clickable_url(rec.get("url")), _as_url(rec.get("page_url"))
+
+
+_DOC_LABELS = {
+    "PA_FY2024_COSTARS.pdf": "COSTARS FY2024 season contract",
+    "PA_FY2025_COSTARS.pdf": "COSTARS FY2025 season contract",
+    "PA_FY2026_COSTARS_6100053321.pdf": "COSTARS FY2026 season contract",
+    "PA_FY2027_COSTARS_6100065611.pdf": "COSTARS FY2027 season contract",
+    "PA_estimates_FY2022_6100053321.xlsx": "FY2022 estimated requirements",
+    "PA_estimates_FY2023_6100056192.pdf": "FY2023 estimated requirements",
+    "PA_estimates_FY2027_6100065611.pdf": "FY2027 estimated requirements",
+    "MI_FY2027_CompassMinerals_260000000713.pdf": "Compass Minerals FY2027",
+    "MI_FY2027_DetroitSalt_260000000712.pdf": "Detroit Salt FY2027",
+}
 
 
 def document_label(name: str) -> str:
+    _, _, label = _snap_pdf_page(name)
+    if label:
+        return label
+    known = _DOC_LABELS.get(str(name) or "")
+    if known:
+        return known
     try:
         from salttracker.sources import snap_document_label
         return snap_document_label(name)
     except ImportError:
-        return str(name or "")
+        stem = str(name or "")
+        for ext in (".pdf", ".xlsx", ".xls"):
+            if stem.lower().endswith(ext):
+                stem = stem[: -len(ext)]
+                break
+        return stem.replace("_", " ") if stem else str(name or "")
 
 
 def _state_display(code: str) -> str:
@@ -146,14 +243,18 @@ def source_table_for_export(catalog: pd.DataFrame) -> pd.DataFrame:
     """Plain columns for CSV/Excel — no markdown."""
     rows = []
     for _, row in catalog.iterrows():
+        fname = str(row.get("source_doc") or "").strip()
+        url = clickable_url(_as_url(row.get("source_url")))
+        page = clickable_url(_as_url(row.get("source_page_url")))
+        snap_pdf, snap_page, _ = _snap_pdf_page(fname)
         rows.append({
             "State": _state_display(row.get("state")),
-            "Contract": row.get("source_label") or row.get("source_doc") or "",
-            "Filename": row.get("source_doc") or "",
+            "Contract": document_label(fname) if fname else (row.get("source_label") or ""),
+            "Filename": fname,
             "Years": years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to")),
             "Supplier": row.get("suppliers") or "",
-            "PDF URL": _as_url(row.get("source_url")) or "",
-            "Listing URL": _as_url(row.get("source_page_url")) or "",
+            "PDF URL": url or snap_pdf or "",
+            "Listing URL": page or snap_page or "",
         })
     return pd.DataFrame(rows)
 
@@ -174,9 +275,11 @@ def executive_source_html(catalog: pd.DataFrame) -> str:
     """HTML table: hover shows the contract name, not the file URL."""
     body = []
     for _, row in catalog.iterrows():
-        url = _as_url(row.get("source_url"))
-        page = _as_url(row.get("source_page_url"))
-        label = (row.get("source_label") or row.get("source_doc") or "").strip()
+        fname = str(row.get("source_doc") or "").strip()
+        snap_pdf, snap_page, _ = _snap_pdf_page(fname)
+        url = clickable_url(_as_url(row.get("source_url"))) or clickable_url(snap_pdf)
+        page = clickable_url(_as_url(row.get("source_page_url"))) or clickable_url(snap_page)
+        label = document_label(fname) if fname else str(row.get("source_label") or "").strip()
         years = years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to"))
         supplier = html.escape(row.get("suppliers") or "—")
         body.append(
@@ -532,8 +635,8 @@ def source_documents(raw: pd.DataFrame) -> pd.DataFrame:
         page = (_first_url(grp["source_page_url"])
                 if "source_page_url" in grp.columns else None)
         snap_url, snap_page = provenance_urls(str(name))
-        url = url or snap_url
-        page = page or snap_page
+        url = clickable_url(url) or clickable_url(snap_url)
+        page = clickable_url(page) or clickable_url(snap_page)
         rows.append({
             "state": states[0] if len(states) == 1 else ", ".join(states),
             "source_doc": str(name),

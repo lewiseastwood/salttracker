@@ -238,6 +238,43 @@ def test_executive_source_table_hides_aliases_and_raw_urls():
     export = briefing.source_table_for_export(cat)
     assert "PDF URL" in export.columns
     assert export[export["Filename"] == "791_snap2023-01.pdf"]["PDF URL"].iloc[0].startswith("http")
+    detroit = cat[cat["source_doc"] == "768_snap2023-01.pdf"].iloc[0]
+    assert "Open" in briefing.executive_source_html(cat.loc[[detroit.name]])
+    assert "id_/" not in str(detroit["source_url"])
+    assert "180000000768" in str(detroit["source_url"])
+
+
+def test_mi_snaps_open_even_when_csv_urls_are_blank():
+    """Cloud often has empty source_url; the table still has to show Open."""
+    cat = pd.DataFrame([{
+        "state": "MI",
+        "source_doc": "768_snap2023-01.pdf",
+        "source_label": "768_snap2023-01.pdf",
+        "fiscal_year_from": 2022,
+        "fiscal_year_to": 2024,
+        "suppliers": "Detroit Salt",
+        "source_url": None,
+        "source_page_url": None,
+    }])
+    markup = briefing.executive_source_html(cat)
+    assert "768_snap" not in markup
+    assert "MA180000000768" in markup
+    assert ">Open<" in markup
+    assert "web.archive.org" in markup
+    assert "id_/" not in markup
+
+
+def test_clickable_url_keeps_a_single_https_scheme():
+    raw = (
+        "https://web.archive.org/web/20230127073006id_/"
+        "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/"
+        "Procurement/Contracts/MiDEAL-Media/006/180000000768.pdf"
+    )
+    href = briefing.clickable_url(raw)
+    assert href.startswith("https://web.archive.org/web/20230127073006/")
+    assert "id_/" not in href
+    assert href.count("https://") == 1
+    assert "180000000768" in href
 
 
 def test_volume_label_depends_on_which_states_are_in_view():
