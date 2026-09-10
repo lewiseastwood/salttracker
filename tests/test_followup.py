@@ -22,8 +22,9 @@ def test_contacts_are_five_pa_counties_with_aoro():
     assert by_county["Erie"]["aoro_email"] == "DHeasley@eriecountypa.gov"
     assert by_county["Washington"]["aoro_status"] == "UNVERIFIED"
     assert by_county["Washington"]["aoro_email"] == "UNVERIFIED"
-    assert by_county["Washington"]["submission_method"].startswith("web form")
+    assert by_county["Washington"]["submission_method"].startswith("mail")
     assert by_county["Washington"]["rtk_web_form_url"].startswith("https://apps.docusign.com/webforms/")
+    assert "UNCONFIRMED" in by_county["Washington"]["notes"]
     for row in rows:
         assert row["aoro_source_url"].startswith("http")
         assert row["purchasing_email"]

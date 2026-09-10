@@ -134,7 +134,8 @@ def write_workbook(rows: list[dict], path: Path) -> None:
         "Primary recipient is the county Agency Open Records Officer (RTKL), "
         "verified 10 Sep 2026 from the county Right-to-Know page. Purchasing "
         "contacts are secondary only. Washington AORO email is UNVERIFIED "
-        "(not published; use the county web form). Default: python scripts/pa_followup.py "
+        "(not published; mail the Chief Clerk — the DocuSign link is unconfirmed). "
+        "Default: python scripts/pa_followup.py "
         "writes this workbook and .eml drafts. Sending requires --send and "
         "SALTTRACKER_FOLLOWUP_CONFIRM=YES and skips UNVERIFIED rows."
     )
