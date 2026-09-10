@@ -37,7 +37,11 @@ def main() -> None:
     raw_path = os.path.join(OUT, "salt_contracts_raw.csv")
     n_docs = 0
     if os.path.exists(raw_path):
-        n_docs = pd.read_csv(raw_path, usecols=["source_doc"])["source_doc"].nunique()
+        raw = pd.read_csv(raw_path)
+        n_docs = raw["source_doc"].nunique()
+    else:
+        raw = pd.DataFrame()
+        n_docs = 0
     named = vendor[vendor["is_attributed"]].copy()
 
     watch = briefing.watch_strip(
@@ -53,6 +57,7 @@ def main() -> None:
         "price_ts_all_annual": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
         "price_ts_all_quarter": fig_html(charts.price_timeseries(state, "weighted_avg_price", "quarter")),
         "volbars_all": fig_html(charts.state_volume_bars(state)),
+        "sharemap_all": fig_html(charts.state_share_map(state)),
         "volume_all_annual": fig_html(charts.volume_timeseries(state, "annual")),
         "volume_all_quarter": fig_html(charts.volume_timeseries(state, "quarter")),
     }
@@ -64,6 +69,7 @@ def main() -> None:
         plots[f"compare_{code}_annual"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "annual"))
         plots[f"compare_{code}_quarter"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "quarter"))
         plots[f"volbars_{code}"] = fig_html(charts.state_volume_bars(st_sub))
+        plots[f"sharemap_{code}"] = fig_html(charts.state_share_map(st_sub))
         plots[f"bubbles_{code}"] = fig_html(charts.vendor_bubbles(sub, code))
         plots[f"bars_{code}"] = fig_html(charts.vendor_price_bars(sub, "weighted_avg_price", code))
         plots[f"price_{code}_annual"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "annual"))
@@ -91,6 +97,17 @@ def main() -> None:
             "tons": None if pd.isna(row["contracted_tons"]) else float(row["contracted_tons"]),
             "price": None if pd.isna(row["weighted_avg_price"]) else float(row["weighted_avg_price"]),
             "value": None if pd.isna(row["contract_value"]) else float(row["contract_value"]),
+        })
+    catalog = briefing.source_documents(raw) if not raw.empty else pd.DataFrame()
+    doc_rows = []
+    for _, row in catalog.iterrows():
+        doc_rows.append({
+            "state": STATE_NAMES.get(row["state"], row["state"]),
+            "doc": row["source_doc"],
+            "fy_from": None if pd.isna(row["fiscal_year_from"]) else int(row["fiscal_year_from"]),
+            "fy_to": None if pd.isna(row["fiscal_year_to"]) else int(row["fiscal_year_to"]),
+            "suppliers": row["suppliers"] or "",
+            "url": row["source_url"] or "",
         })
 
     html = f"""<!DOCTYPE html>
@@ -215,10 +232,16 @@ def main() -> None:
     <div class="card" data-panel="PA">{plots['share_PA']}</div>
   </div>
   <h2>Latest year</h2>
-  <div class="grid3">
+  <div class="grid">
+    <div class="card" data-panel="all">{plots['sharemap_all']}</div>
     <div class="card" data-panel="all">{plots['volbars_all']}</div>
+    <div class="card" data-panel="MI">{plots['sharemap_MI']}</div>
     <div class="card" data-panel="MI">{plots['volbars_MI']}</div>
+    <div class="card" data-panel="PA">{plots['sharemap_PA']}</div>
     <div class="card" data-panel="PA">{plots['volbars_PA']}</div>
+  </div>
+  <p class="note" data-panel="all">Share of contracted tons in the latest fiscal year. The tracker covers Michigan and Pennsylvania only.</p>
+  <div class="grid3">
     <div class="card" data-panel="all">{plots['bubbles_MI']}</div>
     <div class="card" data-panel="all">{plots['bars_MI']}</div>
     <div class="card" data-panel="all">{plots['bubbles_PA']}</div>
@@ -250,11 +273,22 @@ def main() -> None:
     <div class="card" data-panel="PA" data-grain="quarter">{plots['vol_PA_quarter']}</div>
   </div>
 
+  <h2>Source contracts</h2>
+  <p class="note" style="margin-top:0">Published PDFs behind the tables. Use Open contract to download from the state site.</p>
+  <div class="exports">
+    <button type="button" onclick="downloadCsv('docs')">Download contract list (CSV)</button>
+  </div>
+  <div class="table-wrap">
+  <table id="tbl-docs">
+    <thead><tr><th>State</th><th>Document</th><th>FY from</th><th>FY to</th><th>Suppliers</th><th>Published file</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  </div>
   <h2>Tables</h2>
   <div class="exports">
     <button type="button" onclick="downloadCsv('supplier')">Download supplier table (CSV)</button>
     <button type="button" onclick="downloadCsv('state')">Download state table (CSV)</button>
-    <button type="button" onclick="downloadXlsx()">Download Excel (both tables)</button>
+    <button type="button" onclick="downloadXlsx()">Download Excel (tables)</button>
   </div>
   <h2>By supplier</h2>
   <div class="table-wrap">
@@ -276,8 +310,10 @@ def main() -> None:
 <script>
 const rows = {json.dumps(table_rows)};
 const stateRows = {json.dumps(state_rows)};
+const docRows = {json.dumps(doc_rows)};
 const tbody = document.querySelector("#tbl tbody");
 const tbodyS = document.querySelector("#tbl-state tbody");
+const tbodyD = document.querySelector("#tbl-docs tbody");
 const sel = document.getElementById("state");
 const grainInputs = document.querySelectorAll("input[name=grain]");
 function fmtTons(n) {{ return n == null ? "—" : n.toLocaleString("en-US", {{maximumFractionDigits: 0}}); }}
@@ -317,6 +353,13 @@ function paint() {{
     tr.innerHTML = `<td>${{r.state}}</td><td>${{r.fy}}</td><td>${{fmtTons(r.tons)}}</td><td>${{fmtMoney(r.price)}}</td><td>${{fmtValue(r.value)}}</td>`;
     tbodyS.appendChild(tr);
   }});
+  tbodyD.innerHTML = "";
+  visible(docRows).forEach(r => {{
+    const link = r.url ? `<a href="${{r.url}}" target="_blank" rel="noopener">Open contract</a>` : "—";
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${{r.state}}</td><td>${{r.doc}}</td><td>${{r.fy_from || "—"}}</td><td>${{r.fy_to || "—"}}</td><td>${{r.suppliers || "—"}}</td><td>${{link}}</td>`;
+    tbodyD.appendChild(tr);
+  }});
 }}
 function csvEscape(x) {{
   if (x == null || x === "") return "";
@@ -336,6 +379,13 @@ function downloadCsv(kind) {{
     const lines = [header.join(",")].concat(visible(stateRows).map(r =>
       [r.state, r.fy, r.tons, r.price, r.value].map(csvEscape).join(",")));
     saveBlob("salt_by_state.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
+    return;
+  }}
+  if (kind === "docs") {{
+    const header = ["State","Source document","FY from","FY to","Suppliers","Published URL"];
+    const lines = [header.join(",")].concat(visible(docRows).map(r =>
+      [r.state, r.doc, r.fy_from, r.fy_to, r.suppliers, r.url].map(csvEscape).join(",")));
+    saveBlob("salt_source_contracts.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
     return;
   }}
   const header = ["State","Fiscal year","Supplier","Contracted tons","Weighted $/ton","Contract value","Volume share"];
@@ -360,6 +410,11 @@ function downloadXlsx() {{
   }}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sup), "By supplier");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(st), "By state");
+  const docs = visible(docRows).map(r => ({{
+    "State": r.state, "Source document": r.doc, "FY from": r.fy_from,
+    "FY to": r.fy_to, "Suppliers": r.suppliers, "Published URL": r.url,
+  }}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(docs), "Source contracts");
   XLSX.writeFile(wb, "salt_contract_tables.xlsx");
 }}
 sel.addEventListener("change", paint);

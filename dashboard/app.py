@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import io
 import os
+import zipfile
 from datetime import date
 from html import escape
 
@@ -26,6 +27,7 @@ STATE_CSV = os.path.join(OUT_DIR, "salt_contracts_by_state.csv")
 RAW_CSV = os.path.join(OUT_DIR, "salt_contracts_raw.csv")
 WATCH_STATE = os.path.join(ROOT, "data", "watch_state.json")
 ALERTS_JSONL = os.path.join(ROOT, "data", "alerts.jsonl")
+RAW_DIR = os.path.join(ROOT, "data", "raw")
 
 st.set_page_config(
     page_title="Road Salt Contracts | Michigan & Pennsylvania",
@@ -125,6 +127,36 @@ def excel_bytes(*sheets: tuple[str, pd.DataFrame]) -> bytes:
         del wb["Sheet"]
     buf = io.BytesIO()
     wb.save(buf)
+    return buf.getvalue()
+
+
+def local_source_path(doc_name: str, state: str | None = None) -> str | None:
+    """PDFs are gitignored; they exist after a local scrape, not on Streamlit Cloud."""
+    if not doc_name:
+        return None
+    codes = []
+    if state in ("MI", "PA"):
+        codes.append(state)
+    codes.extend(c for c in ("MI", "PA") if c not in codes)
+    for code in codes:
+        path = os.path.join(RAW_DIR, code, str(doc_name))
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def zip_source_files(catalog: pd.DataFrame) -> bytes | None:
+    buf = io.BytesIO()
+    n = 0
+    with zipfile.ZipFile(buf, "w") as zf:
+        for _, row in catalog.iterrows():
+            path = local_source_path(row.get("source_doc"), row.get("state"))
+            if not path:
+                continue
+            zf.write(path, arcname=os.path.basename(path))
+            n += 1
+    if not n:
+        return None
     return buf.getvalue()
 
 
@@ -255,7 +287,7 @@ by_state = state_table(s)
 line_keep = [c for c in [
     "state", "fiscal_year", "vendor", "county", "program", "channel",
     "contracted_tons", "price_per_ton", "extended_value", "record_type",
-    "source_doc", "source_page",
+    "source_doc", "source_page", "source_url",
 ] if c in r.columns]
 line_items = r[line_keep].copy()
 if "state" in line_items.columns:
@@ -266,11 +298,27 @@ line_items = line_items.rename(columns={
     "contracted_tons": "Contracted tons", "price_per_ton": "Price $/ton",
     "extended_value": "Extended value ($)", "record_type": "Record type",
     "source_doc": "Source document", "source_page": "Page",
+    "source_url": "Source URL",
 })
+catalog = briefing.source_documents(r)
+catalog_view = catalog.copy()
+catalog_view["state"] = catalog_view["state"].map(
+    lambda s: STATE_NAMES.get(s, s) if isinstance(s, str) and len(s) == 2 else s
+)
+catalog_view = catalog_view.rename(columns={
+    "state": "State",
+    "source_doc": "Source document",
+    "fiscal_year_from": "FY from",
+    "fiscal_year_to": "FY to",
+    "suppliers": "Suppliers",
+    "source_url": "Published URL",
+})
+source_zip = zip_source_files(catalog)
 pack = excel_bytes(
     ("By supplier", by_supplier),
     ("By state", by_state),
     ("Line items", line_items.head(10_000)),
+    ("Source contracts", catalog_view),
 )
 
 latest_fy = int(s["fiscal_year"].max())
@@ -375,6 +423,16 @@ for i, code in enumerate(sel_states):
     with share_cols[i]:
         st.plotly_chart(charts.vendor_share(v, code), width="stretch")
 
+map_col, bar_col = st.columns(2)
+with map_col:
+    st.plotly_chart(charts.state_share_map(s), width="stretch")
+    st.caption(
+        "Share of contracted tons in the **latest fiscal year in the From/To range**. "
+        "The tracker covers Michigan and Pennsylvania only."
+    )
+with bar_col:
+    st.plotly_chart(charts.state_volume_bars(s), width="stretch")
+
 tab_compare, tab_suppliers, tab_vol, tab_table = st.tabs(
     ["Volume & price by supplier", "Suppliers in latest year", "Volume over time", "Tables & export"]
 )
@@ -431,9 +489,34 @@ with tab_table:
         "salt_line_items.csv", "text/csv", width="stretch", key="tab_line_csv",
     )
     x4.download_button(
-        "All three · Excel", pack, "salt_contract_tables.xlsx",
+        "All four · Excel", pack, "salt_contract_tables.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         width="stretch", key="tab_excel",
+    )
+
+    st.subheader("Source contracts")
+    st.caption(
+        "These are the published state PDFs behind the current filter. "
+        "Open the state's URL (works on Streamlit Cloud). A zip of local files is available only after a scrape on this machine — PDFs are not stored in GitHub."
+    )
+    c_csv, c_zip = st.columns(2)
+    c_csv.download_button(
+        "Contract list · CSV", catalog_view.to_csv(index=False).encode(),
+        "salt_source_contracts.csv", "text/csv", width="stretch", key="tab_docs_csv",
+    )
+    if source_zip:
+        c_zip.download_button(
+            "Source PDFs · zip", source_zip, "salt_source_contracts.zip",
+            "application/zip", width="stretch", key="tab_docs_zip",
+        )
+    else:
+        c_zip.caption("No local PDFs to zip. Use the published URLs.")
+    st.dataframe(
+        catalog_view,
+        width="stretch", height=280, hide_index=True,
+        column_config={
+            "Published URL": st.column_config.LinkColumn("Published URL", display_text="Open contract"),
+        },
     )
 
     st.subheader("By supplier")
@@ -465,5 +548,6 @@ with tab_table:
         column_config={
             "Contracted tons": tons_fmt, "Price $/ton": money_fmt,
             "Extended value ($)": value_fmt,
+            "Source URL": st.column_config.LinkColumn("Source URL", display_text="Open"),
         },
     )

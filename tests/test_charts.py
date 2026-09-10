@@ -134,3 +134,20 @@ def test_quarter_price_lines_connect_across_empty_quarters():
     price_lines = [tr for tr in cmp_fig.data if tr.type == "scatter"]
     assert price_lines
     assert all(tr.connectgaps is True for tr in price_lines)
+
+
+def test_state_share_map_uses_latest_year_and_sums_to_one():
+    state = pd.read_csv(os.path.join(ROOT, "data", "output", "salt_contracts_by_state.csv"))
+    fig = charts.state_share_map(state)
+    choro = next(tr for tr in fig.data if tr.type == "choropleth")
+    locs = list(choro.locations)
+    assert "MI" in locs and "PA" in locs
+    shares = [float(z) for z in choro.z]
+    assert abs(sum(shares) - 1.0) < 1e-9
+    latest = state[state["fiscal_year"] == int(state["fiscal_year"].max())]
+    expected = {
+        str(row["state"]): float(row["contracted_tons"]) / float(latest["contracted_tons"].sum())
+        for _, row in latest.iterrows()
+    }
+    for loc, z in zip(locs, shares):
+        assert abs(z - expected[str(loc)]) < 1e-9

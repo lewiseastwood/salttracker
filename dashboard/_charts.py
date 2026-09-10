@@ -7,7 +7,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from _theme import NAVY, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, style
+from _theme import INK, LINE, NAVY, PAPER, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, WHITE, style
 
 SHORT_VENDOR = {
     "Riverside Construction Materials": "Riverside",
@@ -328,9 +328,89 @@ def _latest(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["fiscal_year"] == int(df["fiscal_year"].max())].copy()
 
 
+# Approximate state centroids for share labels (not used for the fill).
+_STATE_LABEL_LONLAT = {
+    "MI": (-85.4, 44.3),
+    "PA": (-77.8, 40.9),
+}
+
+
+def state_share_map(state_df: pd.DataFrame) -> go.Figure:
+    """USA choropleth of contracted-ton share for the latest year in view.
+
+    Only Michigan and Pennsylvania are in the tracker, so the map zooms to
+    those two. Share is of the filtered two-state (or one-state) total.
+    """
+    g = _latest(state_df)
+    fy = int(g["fiscal_year"].max()) if not g.empty else None
+    fig = go.Figure()
+    title = f"State share of contracted tons · FY{fy}" if fy else "State share of contracted tons"
+    if g.empty:
+        fig.update_layout(title=title)
+        return style(fig, height=420, legend="none")
+
+    g = g.copy()
+    tons = pd.to_numeric(g["contracted_tons"], errors="coerce").fillna(0.0)
+    total = float(tons.sum())
+    shares = (tons / total) if total else tons * 0
+    codes = [str(c) for c in g["state"]]
+    names = [STATE_NAMES.get(c, c) for c in codes]
+    custom = list(zip(names, tons.tolist(), shares.tolist()))
+    fig.add_trace(go.Choropleth(
+        locations=codes,
+        z=shares.tolist(),
+        locationmode="USA-states",
+        colorscale=[[0, "#E8EEF1"], [0.5, "#7A94A3"], [1, NAVY]],
+        zmin=0,
+        zmax=1,
+        colorbar=dict(
+            title=dict(text="Share of tons", side="right"),
+            tickformat=".0%",
+            thickness=12,
+            len=0.72,
+            x=1.0,
+        ),
+        marker_line_color=WHITE,
+        marker_line_width=1.2,
+        customdata=custom,
+        hovertemplate="%{customdata[0]}<br>%{customdata[2]:.1%} of contracted tons<br>%{customdata[1]:,.0f} tons<extra></extra>",
+        name="",
+    ))
+    label_lon, label_lat, label_text = [], [], []
+    for code, share in zip(codes, shares.tolist()):
+        lonlat = _STATE_LABEL_LONLAT.get(code)
+        if not lonlat:
+            continue
+        label_lon.append(lonlat[0])
+        label_lat.append(lonlat[1])
+        label_text.append(f"{STATE_NAMES.get(code, code)}<br>{share:.0%}")
+    if label_text:
+        fig.add_trace(go.Scattergeo(
+            lon=label_lon, lat=label_lat, text=label_text, mode="text",
+            textfont=dict(size=12, color=INK, family="Georgia, 'Times New Roman', serif"),
+            hoverinfo="skip", showlegend=False,
+        ))
+    fig.update_geos(
+        scope="usa",
+        fitbounds="locations",
+        visible=False,
+        showland=True,
+        landcolor=PAPER,
+        showlakes=True,
+        lakecolor=WHITE,
+        bgcolor=WHITE,
+        showsubunits=True,
+        subunitcolor=LINE,
+        subunitwidth=0.4,
+        projection_type="albers usa",
+    )
+    fig.update_layout(title=title, margin=dict(l=16, r=72, t=64, b=24))
+    return style(fig, height=420, legend="none")
+
+
 def state_overview_map(state_df: pd.DataFrame) -> go.Figure:
-    """Back-compat alias; the choropleth was misleading and was removed."""
-    return state_volume_bars(state_df)
+    """State share choropleth for the latest year in view."""
+    return state_share_map(state_df)
 
 
 def _vendor_totals(vendor_df: pd.DataFrame, metric: str) -> pd.DataFrame:

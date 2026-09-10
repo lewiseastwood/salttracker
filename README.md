@@ -54,6 +54,9 @@ open the `*.streamlit.app` link; they do not need GitHub access.
 | `salt_contracts_by_vendor.csv` | State × fiscal year × vendor: volume, weighted price, contract value, volume share |
 | `salt_contracts_by_state.csv` | State × fiscal year totals |
 | `salt_contract_tracker.xlsx` | All of the above plus a source-coverage sheet |
+| `Road_Salt_Contract_Tracker.html` | Same briefing as Streamlit, including the state-share map and links to published contract PDFs |
+
+The dashboard **Tables & export** tab lists every source PDF in the current filter, with a link to the state's published file. A zip of local PDFs is available only after `scripts/refresh.py` has been run on that machine (PDFs are gitignored and are not on Streamlit Cloud).
 
 ## Data sources
 
@@ -123,6 +126,18 @@ published at an address that does not exist yet. Each run:
    secrets are set. Run state lives in `data/watch_state.json`.
 
 Each run also appends to `data/refresh_log.jsonl`.
+
+## Pennsylvania follow-up (pilot)
+
+Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack for the five Pennsylvania counties with the most FY2027 contracted tons (Allegheny, Westmoreland, Luzerne, Washington, Erie):
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/pa_followup.py
+```
+
+That writes `data/output/pa_followup/PA_procurement_contacts.xlsx` and `.eml` drafts. Contacts are department inboxes published on county websites (`data/pa_followup/contacts.csv`). The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. Optional `--poll-inbox` forwards unseen IMAP replies that look like salt/RTK responses to `SALTTRACKER_ALERT_EMAIL`.
+
+## Extraction hazards handled
 
 ## Extraction hazards handled
 
@@ -225,6 +240,8 @@ src/salttracker/
   parsers/pennsylvania.py DGS/COSTARS county pricing
 dashboard/app.py          Streamlit dashboard
 scripts/refresh.py        end-to-end refresh
+scripts/pa_followup.py    PA county RTK drafts (does not send unless confirmed)
+tests/test_validation.py  document-anchored validation
 scripts/persist_refresh.sh  commit scrape outputs including failures
 tests/test_validation.py  document-anchored validation
 data/raw/                 downloaded source documents (by state)

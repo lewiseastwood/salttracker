@@ -267,6 +267,48 @@ def coverage_grid(vendor_df: pd.DataFrame, state_code: str) -> dict:
     }
 
 
+def source_documents(raw: pd.DataFrame) -> pd.DataFrame:
+    """One row per source PDF/xlsx used in the current filter."""
+    cols = [
+        "state", "source_doc", "fiscal_year_from", "fiscal_year_to",
+        "suppliers", "source_url",
+    ]
+    if raw.empty or "source_doc" not in raw.columns:
+        return pd.DataFrame(columns=cols)
+    work = raw[raw["source_doc"].notna() & raw["source_doc"].astype(str).str.strip().ne("")].copy()
+    if work.empty:
+        return pd.DataFrame(columns=cols)
+
+    rows = []
+    for name, grp in work.groupby("source_doc", dropna=False):
+        fys = pd.to_numeric(grp["fiscal_year"], errors="coerce").dropna()
+        states = [str(s) for s in grp["state"].dropna().unique()]
+        vendors = []
+        if "vendor" in grp.columns:
+            vendors = sorted({
+                str(v) for v in grp["vendor"].dropna()
+                if str(v) not in ("", "Unattributed", "nan")
+            })
+        url = None
+        if "source_url" in grp.columns:
+            for u in grp["source_url"].dropna():
+                if str(u).strip():
+                    url = str(u)
+                    break
+        rows.append({
+            "state": states[0] if len(states) == 1 else ", ".join(states),
+            "source_doc": str(name),
+            "fiscal_year_from": int(fys.min()) if len(fys) else None,
+            "fiscal_year_to": int(fys.max()) if len(fys) else None,
+            "suppliers": ", ".join(vendors),
+            "source_url": url,
+        })
+    return pd.DataFrame(rows, columns=cols).sort_values(
+        ["state", "fiscal_year_from", "source_doc"],
+        na_position="last",
+    ).reset_index(drop=True)
+
+
 def coverage_table_html(grid: dict) -> str:
     if not grid["years"]:
         return f'<p class="cov-empty">{grid["title"]}: no years in view.</p>'

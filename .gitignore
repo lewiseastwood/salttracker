@@ -12,5 +12,6 @@ data/interim/parse_cache/
 data/raw/
 data/interim/mi_page.html
 data/interim/pa_cdx.json
+data/output/pa_followup/drafts/
 *.pdf
 !data/output/

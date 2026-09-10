@@ -140,3 +140,17 @@ def test_coverage_discrete_fills_not_tonnage():
     assert all(r["vendor"] != "Unattributed" for r in mi["rows"])
     detroit = next(r for r in mi["rows"] if r["vendor"] == "Detroit Salt")
     assert all(c["fill"] == "both" for c in detroit["cells"])
+
+
+RAW_CSV = os.path.join(ROOT, "data", "output", "salt_contracts_raw.csv")
+
+
+@pytest.mark.skipif(not os.path.exists(RAW_CSV), reason="dataset not built")
+def test_source_documents_catalog_has_urls():
+    raw = pd.read_csv(RAW_CSV)
+    catalog = briefing.source_documents(raw)
+    assert not catalog.empty
+    assert "PA_FY2027_COSTARS_6100065611.pdf" in set(catalog["source_doc"])
+    fy27 = catalog[catalog["source_doc"] == "PA_FY2027_COSTARS_6100065611.pdf"].iloc[0]
+    assert fy27["fiscal_year_from"] == 2027
+    assert isinstance(fy27["source_url"], str) and fy27["source_url"].startswith("http")
