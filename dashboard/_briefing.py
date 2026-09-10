@@ -4,10 +4,15 @@ from __future__ import annotations
 import html
 import json
 import subprocess
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
 import pandas as pd
+
+_SRC = Path(__file__).resolve().parents[1] / "src"
+if str(_SRC) not in sys.path:
+    sys.path.insert(0, str(_SRC))
 
 from _theme import STATE_NAMES
 
@@ -69,16 +74,37 @@ def pa_basis_note(df: pd.DataFrame) -> str | None:
     return PA_TONS_BASIS_NOTE
 
 
+def _as_url(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in ("nan", "none"):
+        return None
+    return text
+
+
 def file_markdown_link(name: str | None, url: str | None) -> str:
-    """Filename as a markdown link when a published URL exists."""
+    """Filename (or label) as a markdown link when a published URL exists."""
     text = str(name or "").strip()
     if not text:
         return ""
-    href = str(url or "").strip()
-    if not href or href.lower() in ("nan", "none"):
+    href = _as_url(url)
+    if not href:
         return text
     safe = text.replace("[", "\\[").replace("]", "\\]")
     return f"[{safe}]({href})"
+
+
+def provenance_urls(name: str) -> tuple[str | None, str | None]:
+    """Wayback file + listing page for a Michigan snap alias, if known."""
+    try:
+        from salttracker.sources import known_local_provenance
+    except ImportError:
+        return None, None
+    rec = known_local_provenance().get(str(name) or "") or {}
+    return rec.get("url"), rec.get("page_url")
 
 
 def document_label(name: str) -> str:
@@ -389,10 +415,10 @@ def coverage_grid(vendor_df: pd.DataFrame, state_code: str) -> dict:
 
 
 def _first_url(series: pd.Series) -> str | None:
-    for value in series.dropna():
-        text = str(value).strip()
-        if text and text.lower() not in ("nan", "none"):
-            return text
+    for value in series:
+        href = _as_url(value)
+        if href:
+            return href
     return None
 
 
@@ -421,6 +447,9 @@ def source_documents(raw: pd.DataFrame) -> pd.DataFrame:
         url = _first_url(grp["source_url"]) if "source_url" in grp.columns else None
         page = (_first_url(grp["source_page_url"])
                 if "source_page_url" in grp.columns else None)
+        snap_url, snap_page = provenance_urls(str(name))
+        url = url or snap_url
+        page = page or snap_page
         rows.append({
             "state": states[0] if len(states) == 1 else ", ".join(states),
             "source_doc": str(name),

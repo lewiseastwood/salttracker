@@ -199,6 +199,28 @@ def test_source_documents_catalog_has_urls():
     assert not cargill.empty
     assert "CN3" in str(cargill.iloc[0]["source_label"])
     assert "2021/2022" in str(cargill.iloc[0]["source_label"])
+    snaps = [
+        "768_snap2023-01.pdf", "768_snap2025-04.pdf", "768_snap2026-05.pdf",
+        "787_snap2023-01.pdf", "787_snap2025-04.pdf", "787_snap2026-05.pdf",
+        "791_snap2023-01.pdf",
+    ]
+    for name in snaps:
+        row = catalog[catalog["source_doc"] == name].iloc[0]
+        assert str(row["source_url"]).startswith("https://web.archive.org/"), name
+        assert "michigan.gov" in str(row["source_url"])
+        assert str(row["source_page_url"]).startswith("https://web.archive.org/"), name
+        assert briefing.file_markdown_link("Open PDF", row["source_url"]).startswith("[Open PDF](http")
+
+
+def test_snap_urls_fill_from_wayback_when_csv_blank():
+    raw = pd.read_csv(RAW_CSV)
+    snaps = raw[raw["source_doc"] == "791_snap2023-01.pdf"].copy()
+    snaps["source_url"] = None
+    snaps["source_page_url"] = None
+    cat = briefing.source_documents(snaps)
+    row = cat.iloc[0]
+    assert "180000000791" in str(row["source_url"])
+    assert "web.archive.org" in str(row["source_page_url"])
 
 
 def test_volume_label_depends_on_which_states_are_in_view():

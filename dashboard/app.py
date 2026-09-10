@@ -560,15 +560,21 @@ with tab_table:
                     catalog_view["Published file URL"],
                 )
             ],
+            "Published file URL": [
+                briefing.file_markdown_link("Open PDF", u) if briefing._as_url(u) else ""
+                for u in catalog_view["Published file URL"]
+            ],
+            "Source page URL": [
+                briefing.file_markdown_link("Open page", u) if briefing._as_url(u) else ""
+                for u in catalog_view["Source page URL"]
+            ],
         }),
         width="stretch", height=280, hide_index=True,
         column_config={
             "Source document": st.column_config.MarkdownColumn("Source document"),
             "Document": st.column_config.MarkdownColumn("Document"),
-            "Published file URL": st.column_config.LinkColumn(
-                "Published file URL", display_text="Open file"),
-            "Source page URL": st.column_config.LinkColumn(
-                "Source page URL", display_text="Open page"),
+            "Published file URL": st.column_config.MarkdownColumn("Published file URL"),
+            "Source page URL": st.column_config.MarkdownColumn("Source page URL"),
         },
     )
     st.markdown("**Download each contract**")
@@ -648,6 +654,15 @@ with tab_table:
             briefing.file_markdown_link(n, u)
             for n, u in zip(line_display["Source document"], line_display["Source URL"])
         ]
+        line_display["Source URL"] = [
+            briefing.file_markdown_link("Open", u) if briefing._as_url(u) else ""
+            for u in line_display["Source URL"]
+        ]
+    if "Source page URL" in line_display.columns:
+        line_display["Source page URL"] = [
+            briefing.file_markdown_link("Open page", u) if briefing._as_url(u) else ""
+            for u in line_display["Source page URL"]
+        ]
     st.dataframe(
         line_display, width="stretch", height=360, hide_index=True,
         column_config={
@@ -655,8 +670,7 @@ with tab_table:
             "Non-PennDOT agency tons": tons_fmt, "Price $/ton": money_fmt,
             "Extended value ($)": value_fmt,
             "Source document": st.column_config.MarkdownColumn("Source document"),
-            "Source URL": st.column_config.LinkColumn("Source URL", display_text="Open"),
-            "Source page URL": st.column_config.LinkColumn(
-                "Source page URL", display_text="Open page"),
+            "Source URL": st.column_config.MarkdownColumn("Source URL"),
+            "Source page URL": st.column_config.MarkdownColumn("Source page URL"),
         },
     )
