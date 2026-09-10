@@ -216,6 +216,15 @@ def test_volume_label_depends_on_which_states_are_in_view():
     assert "award-time" in briefing.MI_CAPTURE_NOTE_SHORT
 
 
+def test_file_markdown_link():
+    assert briefing.file_markdown_link(
+        "791_snap2023-01.pdf",
+        "https://web.archive.org/web/x/file.pdf",
+    ) == "[791_snap2023-01.pdf](https://web.archive.org/web/x/file.pdf)"
+    assert briefing.file_markdown_link("791_snap2023-01.pdf", None) == "791_snap2023-01.pdf"
+    assert briefing.file_markdown_link("791_snap2023-01.pdf", "") == "791_snap2023-01.pdf"
+
+
 def test_revision_caption_does_not_call_git():
     sha, href = briefing.revision_caption({
         "data_commit": "abc1234deadbeef",

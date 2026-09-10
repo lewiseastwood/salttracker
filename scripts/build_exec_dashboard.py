@@ -386,8 +386,12 @@ function paint() {{
     let link = "Provenance unknown";
     if (r.url) link = `<a href="${{r.url}}" target="_blank" rel="noopener">Open file</a>`;
     else if (r.page_url) link = `<a href="${{r.page_url}}" target="_blank" rel="noopener">Open source page</a>`;
+    const name = r.filename || r.doc || "—";
+    const docCell = r.url
+      ? `<a href="${{r.url}}" target="_blank" rel="noopener">${{name}}</a>`
+      : name;
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${{r.state}}</td><td>${{r.doc}}</td><td>${{r.fy_from || "—"}}</td><td>${{r.fy_to || "—"}}</td><td>${{r.suppliers || "—"}}</td><td>${{link}}</td>`;
+    tr.innerHTML = `<td>${{r.state}}</td><td>${{docCell}}</td><td>${{r.fy_from || "—"}}</td><td>${{r.fy_to || "—"}}</td><td>${{r.suppliers || "—"}}</td><td>${{link}}</td>`;
     tbodyD.appendChild(tr);
   }});
 }}

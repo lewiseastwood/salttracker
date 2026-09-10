@@ -69,6 +69,18 @@ def pa_basis_note(df: pd.DataFrame) -> str | None:
     return PA_TONS_BASIS_NOTE
 
 
+def file_markdown_link(name: str | None, url: str | None) -> str:
+    """Filename as a markdown link when a published URL exists."""
+    text = str(name or "").strip()
+    if not text:
+        return ""
+    href = str(url or "").strip()
+    if not href or href.lower() in ("nan", "none"):
+        return text
+    safe = text.replace("[", "\\[").replace("]", "\\]")
+    return f"[{safe}]({href})"
+
+
 def document_label(name: str) -> str:
     try:
         from salttracker.sources import snap_document_label

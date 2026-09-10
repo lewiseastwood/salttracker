@@ -545,9 +545,26 @@ with tab_table:
     if zip_fail:
         st.error("These sources could not be downloaded:\n" + "\n".join(f"- {e}" for e in zip_fail))
     st.dataframe(
-        catalog_view,
+        catalog_view.assign(**{
+            "Source document": [
+                briefing.file_markdown_link(n, u)
+                for n, u in zip(
+                    catalog_view["Source document"],
+                    catalog_view["Published file URL"],
+                )
+            ],
+            "Document": [
+                briefing.file_markdown_link(n, u)
+                for n, u in zip(
+                    catalog_view["Document"],
+                    catalog_view["Published file URL"],
+                )
+            ],
+        }),
         width="stretch", height=280, hide_index=True,
         column_config={
+            "Source document": st.column_config.MarkdownColumn("Source document"),
+            "Document": st.column_config.MarkdownColumn("Document"),
             "Published file URL": st.column_config.LinkColumn(
                 "Published file URL", display_text="Open file"),
             "Source page URL": st.column_config.LinkColumn(
@@ -560,7 +577,10 @@ with tab_table:
         url = downloads.published_link(row.get("source_url"))
         page = downloads.published_link(row.get("source_page_url"))
         left, mid, right = st.columns([5, 1.4, 1.6])
-        left.write(doc)
+        if url:
+            left.markdown(briefing.file_markdown_link(doc, url))
+        else:
+            left.write(doc)
         fetch_key = f"doc_fetch_{i}"
         data_key = f"doc_bytes_{i}"
         if url:
@@ -622,12 +642,19 @@ with tab_table:
         "members are extra rows with a purchasing entity from the roster; "
         "PennDOT and non-PennDOT agencies are split columns on the lot, not inferred buyers."
     )
+    line_display = line_items.copy()
+    if "Source document" in line_display.columns and "Source URL" in line_display.columns:
+        line_display["Source document"] = [
+            briefing.file_markdown_link(n, u)
+            for n, u in zip(line_display["Source document"], line_display["Source URL"])
+        ]
     st.dataframe(
-        line_items, width="stretch", height=360, hide_index=True,
+        line_display, width="stretch", height=360, hide_index=True,
         column_config={
             tons_col: tons_fmt, "PennDOT tons": tons_fmt, "COSTARS tons": tons_fmt,
             "Non-PennDOT agency tons": tons_fmt, "Price $/ton": money_fmt,
             "Extended value ($)": value_fmt,
+            "Source document": st.column_config.MarkdownColumn("Source document"),
             "Source URL": st.column_config.LinkColumn("Source URL", display_text="Open"),
             "Source page URL": st.column_config.LinkColumn(
                 "Source page URL", display_text="Open page"),
