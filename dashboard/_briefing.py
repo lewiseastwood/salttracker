@@ -15,9 +15,15 @@ PA_VOLUME_NOTE = (
     "not purchased or delivered."
 )
 UNLIKE_SHARE_NOTE = (
-    "The two-state share compares unlike quantities: Pennsylvania is estimated "
-    "requirements; Michigan is contracted drop-point awards."
+    "Michigan and Pennsylvania are not combined into a share: those are unlike "
+    "quantities. Pennsylvania is estimated lot requirements; Michigan is contracted "
+    "drop-point awards."
 )
+
+STATE_VOLUME_MEASURE = {
+    "MI": "contracted drop-point tons",
+    "PA": "estimated lot requirements",
+}
 
 
 def volume_label(df: pd.DataFrame) -> str:

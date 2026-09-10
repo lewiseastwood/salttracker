@@ -8,7 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from _theme import INK, LINE, NAVY, PAPER, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, WHITE, style
-from _briefing import volume_label
+from _briefing import STATE_VOLUME_MEASURE, volume_label
 
 SHORT_VENDOR = {
     "Riverside Construction Materials": "Riverside",
@@ -336,67 +336,60 @@ _STATE_LABEL_LONLAT = {
 }
 
 
-def state_share_map(state_df: pd.DataFrame) -> go.Figure:
-    """USA choropleth of published-volume share for the latest year in view.
+def _fy_span(df: pd.DataFrame) -> str:
+    if df is None or df.empty or "fiscal_year" not in df.columns:
+        return ""
+    fys = sorted(int(x) for x in df["fiscal_year"].dropna().unique())
+    if not fys:
+        return ""
+    if fys[0] == fys[-1]:
+        return f"FY{fys[0]}"
+    return f"FY{fys[0]}–FY{fys[-1]}"
 
-    Michigan and Pennsylvania are not the same quantity. Combined view is a
-    share of unlike measures; single-state view uses that state's measure.
+
+def state_volume_map(state_df: pd.DataFrame, state_code: str) -> go.Figure:
+    """One-state choropleth of tons in the filtered year range.
+
+    Never a share and never a two-state denominator. Color and label are that
+    state's own tons, summed across every fiscal year still in the frame
+    (the From/To filter), not pinned to the latest year.
     """
-    g = _latest(state_df)
-    fy = int(g["fiscal_year"].max()) if not g.empty else None
+    measure = STATE_VOLUME_MEASURE.get(state_code, "published tons")
+    name = STATE_NAMES.get(state_code, state_code)
+    g = state_df[state_df["state"] == state_code] if not state_df.empty else state_df
+    span = _fy_span(g)
+    title = f"{name} — {measure}" + (f" · {span}" if span else "")
     fig = go.Figure()
-    states = {str(s) for s in g["state"].dropna().unique()} if not g.empty else set()
-    if states == {"MI", "PA"} or len(states) > 1:
-        title = f"Share of published volume (unlike measures) · FY{fy}" if fy else "Share of published volume"
-        hover_noun = "published volume"
-    elif states == {"PA"}:
-        title = f"Share of estimated requirements · FY{fy}" if fy else "Share of estimated requirements"
-        hover_noun = "estimated requirements"
-    else:
-        title = f"Share of contracted tons · FY{fy}" if fy else "Share of contracted tons"
-        hover_noun = "contracted tons"
-    if g.empty:
+    tons = float(pd.to_numeric(g["contracted_tons"], errors="coerce").sum()) if not g.empty else 0.0
+    if g.empty or tons != tons:
         fig.update_layout(title=title)
         return style(fig, height=420, legend="none")
 
-    g = g.copy()
-    tons = pd.to_numeric(g["contracted_tons"], errors="coerce").fillna(0.0)
-    total = float(tons.sum())
-    shares = (tons / total) if total else tons * 0
-    codes = [str(c) for c in g["state"]]
-    names = [STATE_NAMES.get(c, c) for c in codes]
-    custom = list(zip(names, tons.tolist(), shares.tolist()))
     fig.add_trace(go.Choropleth(
-        locations=codes,
-        z=shares.tolist(),
+        locations=[state_code],
+        z=[tons],
         locationmode="USA-states",
-        colorscale=[[0, "#E8EEF1"], [0.5, "#7A94A3"], [1, NAVY]],
+        colorscale=[[0, "#E8EEF1"], [1, STATE_COLORS.get(state_code, NAVY)]],
         zmin=0,
-        zmax=1,
+        zmax=max(tons, 1.0),
         colorbar=dict(
-            title=dict(text="Share", side="right"),
-            tickformat=".0%",
+            title=dict(text="Tons", side="right"),
             thickness=12,
             len=0.72,
             x=1.0,
         ),
         marker_line_color=WHITE,
         marker_line_width=1.2,
-        customdata=custom,
-        hovertemplate="%{customdata[0]}<br>%{customdata[2]:.1%} of " + hover_noun + "<br>%{customdata[1]:,.0f} tons<extra></extra>",
+        customdata=[[name, tons, measure]],
+        hovertemplate="%{customdata[0]}<br>%{customdata[1]:,.0f} %{customdata[2]}<extra></extra>",
         name="",
     ))
-    label_lon, label_lat, label_text = [], [], []
-    for code, share in zip(codes, shares.tolist()):
-        lonlat = _STATE_LABEL_LONLAT.get(code)
-        if not lonlat:
-            continue
-        label_lon.append(lonlat[0])
-        label_lat.append(lonlat[1])
-        label_text.append(f"{STATE_NAMES.get(code, code)}<br>{share:.0%}")
-    if label_text:
+    lonlat = _STATE_LABEL_LONLAT.get(state_code)
+    if lonlat:
         fig.add_trace(go.Scattergeo(
-            lon=label_lon, lat=label_lat, text=label_text, mode="text",
+            lon=[lonlat[0]], lat=[lonlat[1]],
+            text=[f"{name}<br>{tons:,.0f} t"],
+            mode="text",
             textfont=dict(size=12, color=INK, family="Georgia, 'Times New Roman', serif"),
             hoverinfo="skip", showlegend=False,
         ))
@@ -416,11 +409,6 @@ def state_share_map(state_df: pd.DataFrame) -> go.Figure:
     )
     fig.update_layout(title=title, margin=dict(l=16, r=72, t=64, b=24))
     return style(fig, height=420, legend="none")
-
-
-def state_overview_map(state_df: pd.DataFrame) -> go.Figure:
-    """State share choropleth for the latest year in view."""
-    return state_share_map(state_df)
 
 
 def _vendor_totals(vendor_df: pd.DataFrame, metric: str) -> pd.DataFrame:

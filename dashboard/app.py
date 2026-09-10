@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import io
 import os
-import zipfile
 from datetime import date
 from html import escape
 
@@ -18,6 +17,7 @@ from openpyxl.utils.dataframe import dataframe_to_rows
 
 import _charts as charts
 import _briefing as briefing
+import _downloads as downloads
 from _theme import STATE_NAMES
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -27,7 +27,6 @@ STATE_CSV = os.path.join(OUT_DIR, "salt_contracts_by_state.csv")
 RAW_CSV = os.path.join(OUT_DIR, "salt_contracts_raw.csv")
 WATCH_STATE = os.path.join(ROOT, "data", "watch_state.json")
 ALERTS_JSONL = os.path.join(ROOT, "data", "alerts.jsonl")
-RAW_DIR = os.path.join(ROOT, "data", "raw")
 
 st.set_page_config(
     page_title="Road Salt Contracts | Michigan & Pennsylvania",
@@ -127,36 +126,6 @@ def excel_bytes(*sheets: tuple[str, pd.DataFrame]) -> bytes:
         del wb["Sheet"]
     buf = io.BytesIO()
     wb.save(buf)
-    return buf.getvalue()
-
-
-def local_source_path(doc_name: str, state: str | None = None) -> str | None:
-    """PDFs are gitignored; they exist after a local scrape, not on Streamlit Cloud."""
-    if not doc_name:
-        return None
-    codes = []
-    if state in ("MI", "PA"):
-        codes.append(state)
-    codes.extend(c for c in ("MI", "PA") if c not in codes)
-    for code in codes:
-        path = os.path.join(RAW_DIR, code, str(doc_name))
-        if os.path.isfile(path):
-            return path
-    return None
-
-
-def zip_source_files(catalog: pd.DataFrame) -> bytes | None:
-    buf = io.BytesIO()
-    n = 0
-    with zipfile.ZipFile(buf, "w") as zf:
-        for _, row in catalog.iterrows():
-            path = local_source_path(row.get("source_doc"), row.get("state"))
-            if not path:
-                continue
-            zf.write(path, arcname=os.path.basename(path))
-            n += 1
-    if not n:
-        return None
     return buf.getvalue()
 
 
@@ -320,7 +289,6 @@ catalog_view = catalog_view.rename(columns={
     "suppliers": "Suppliers",
     "source_url": "Published URL",
 })
-source_zip = zip_source_files(catalog)
 pack = excel_bytes(
     ("By supplier", by_supplier),
     ("By state", by_state),
@@ -438,21 +406,16 @@ for i, code in enumerate(sel_states):
     with share_cols[i]:
         st.plotly_chart(charts.vendor_share(v, code), width="stretch")
 
-map_col, bar_col = st.columns(2)
-with map_col:
-    st.plotly_chart(charts.state_share_map(s), width="stretch")
-    map_notes = []
-    if "PA" in sel_states:
-        map_notes.append(briefing.PA_VOLUME_NOTE)
-    if set(sel_states) >= {"MI", "PA"}:
-        map_notes.append(briefing.UNLIKE_SHARE_NOTE)
-    elif sel_states == ["PA"]:
-        map_notes.append("Share of estimated requirements in the **latest fiscal year in the From/To range**.")
-    else:
-        map_notes.append("Share of contracted tons in the **latest fiscal year in the From/To range**.")
-    st.caption(" ".join(map_notes))
-with bar_col:
-    st.plotly_chart(charts.state_volume_bars(s), width="stretch")
+map_cols = st.columns(len(sel_states))
+for i, code in enumerate(sel_states):
+    with map_cols[i]:
+        st.plotly_chart(charts.state_volume_map(s, code), width="stretch")
+        notes = [f"{STATE_NAMES.get(code, code)}: {briefing.STATE_VOLUME_MEASURE[code]} in the **From/To fiscal-year range** (summed, not a share)."]
+        if code == "PA":
+            notes.append(briefing.PA_VOLUME_NOTE)
+        st.caption(" ".join(notes))
+st.plotly_chart(charts.state_volume_bars(s), width="stretch")
+st.caption("Bars are the latest fiscal year in the From/To range, shown as tons — not a two-state share.")
 
 tab_compare, tab_suppliers, tab_vol, tab_table = st.tabs(
     ["Volume & price by supplier", "Suppliers in latest year", "Volume over time", "Tables & export"]
@@ -517,21 +480,34 @@ with tab_table:
 
     st.subheader("Source contracts")
     st.caption(
-        "These are the published state PDFs behind the current filter. "
-        "Open the state's URL (works on Streamlit Cloud). A zip of local files is available only after a scrape on this machine — PDFs are not stored in GitHub."
+        "Each Download fetches the published file on this server (local disk after a scrape, "
+        "otherwise the state's URL) and returns the bytes. Failures are listed; they are not skipped."
     )
     c_csv, c_zip = st.columns(2)
     c_csv.download_button(
         "Contract list · CSV", catalog_view.to_csv(index=False).encode(),
         "salt_source_contracts.csv", "text/csv", width="stretch", key="tab_docs_csv",
     )
-    if source_zip:
+    if c_zip.button("Prepare zip of filtered contracts", width="stretch", key="tab_docs_zip_prep"):
+        rows = catalog.to_dict("records")
+        blob, failures = downloads.zip_sources(rows)
+        st.session_state["source_zip"] = blob
+        st.session_state["source_zip_fail"] = failures
+        st.session_state["source_zip_filt"] = (
+            tuple(sel_states), int(fy_from), int(fy_to), vendor_label,
+        )
+    zip_ok = st.session_state.get("source_zip_filt") == (
+        tuple(sel_states), int(fy_from), int(fy_to), vendor_label,
+    )
+    zip_bytes = st.session_state.get("source_zip") if zip_ok else None
+    zip_fail = (st.session_state.get("source_zip_fail") or []) if zip_ok else []
+    if zip_bytes:
         c_zip.download_button(
-            "Source PDFs · zip", source_zip, "salt_source_contracts.zip",
+            "Save zip", zip_bytes, "salt_source_contracts.zip",
             "application/zip", width="stretch", key="tab_docs_zip",
         )
-    else:
-        c_zip.caption("No local PDFs to zip. Use the published URLs.")
+    if zip_fail:
+        st.error("These source URLs failed:\n" + "\n".join(f"- {e}" for e in zip_fail))
     st.dataframe(
         catalog_view,
         width="stretch", height=280, hide_index=True,
@@ -539,6 +515,30 @@ with tab_table:
             "Published URL": st.column_config.LinkColumn("Published URL", display_text="Open contract"),
         },
     )
+    st.markdown("**Download each contract**")
+    for i, row in catalog.iterrows():
+        doc = str(row.get("source_doc") or f"contract_{i}")
+        url = row.get("source_url")
+        left, mid, right = st.columns([5, 1.4, 1.6])
+        left.write(doc)
+        fetch_key = f"doc_fetch_{i}"
+        data_key = f"doc_bytes_{i}"
+        if mid.button("Fetch", key=f"btn_{fetch_key}"):
+            blob, err = downloads.load_source_bytes(doc, row.get("state"), url)
+            st.session_state[data_key] = (blob, err, url)
+        stored = st.session_state.get(data_key)
+        if stored:
+            blob, err, fetched_url = stored
+            if err:
+                right.caption("Failed")
+                st.error(err)
+            else:
+                right.download_button(
+                    "Download", blob, file_name=os.path.basename(doc),
+                    mime="application/octet-stream", key=f"dl_{i}",
+                )
+        elif pd.isna(url) or not str(url).strip():
+            right.caption("No URL")
 
     st.subheader("By supplier")
     st.dataframe(

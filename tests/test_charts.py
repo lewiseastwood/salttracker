@@ -136,27 +136,28 @@ def test_quarter_price_lines_connect_across_empty_quarters():
     assert all(tr.connectgaps is True for tr in price_lines)
 
 
-def test_state_share_map_uses_latest_year_and_sums_to_one():
+def test_state_volume_map_is_tons_over_the_filtered_range_not_a_share():
     state = pd.read_csv(os.path.join(ROOT, "data", "output", "salt_contracts_by_state.csv"))
-    fig = charts.state_share_map(state)
+    mi = state[state["state"] == "MI"]
+    fig = charts.state_volume_map(mi, "MI")
     choro = next(tr for tr in fig.data if tr.type == "choropleth")
-    locs = list(choro.locations)
-    assert "MI" in locs and "PA" in locs
-    shares = [float(z) for z in choro.z]
-    assert abs(sum(shares) - 1.0) < 1e-9
-    latest = state[state["fiscal_year"] == int(state["fiscal_year"].max())]
-    expected = {
-        str(row["state"]): float(row["contracted_tons"]) / float(latest["contracted_tons"].sum())
-        for _, row in latest.iterrows()
-    }
-    for loc, z in zip(locs, shares):
-        assert abs(z - expected[str(loc)]) < 1e-9
-    title = str(fig.layout.title.text or "")
-    assert "unlike" in title.lower()
-    hover = next(tr.hovertemplate for tr in fig.data if tr.type == "choropleth")
-    assert "published volume" in hover
+    assert list(choro.locations) == ["MI"]
+    expected = float(pd.to_numeric(mi["contracted_tons"], errors="coerce").sum())
+    assert abs(float(choro.z[0]) - expected) < 1
+    title = str(fig.layout.title.text or "").lower()
+    assert "drop-point" in title
+    assert "share" not in title
+    assert "unlike" not in title
+    # A two-year slice must not pin to the latest year.
+    slice_ = mi[mi["fiscal_year"].isin([2025, 2026])]
+    fig_range = charts.state_volume_map(slice_, "MI")
+    choro_r = next(tr for tr in fig_range.data if tr.type == "choropleth")
+    range_sum = float(pd.to_numeric(slice_["contracted_tons"], errors="coerce").sum())
+    latest = float(mi[mi["fiscal_year"] == int(mi["fiscal_year"].max())]["contracted_tons"].iloc[0])
+    assert abs(float(choro_r.z[0]) - range_sum) < 1
+    assert abs(range_sum - latest) > 1
 
-    pa = charts.state_share_map(state[state["state"] == "PA"])
-    assert "estimated" in str(pa.layout.title.text or "").lower()
-    mi = charts.state_share_map(state[state["state"] == "MI"])
-    assert "contracted tons" in str(mi.layout.title.text or "").lower()
+    pa = charts.state_volume_map(state[state["state"] == "PA"], "PA")
+    assert "estimated lot requirements" in str(pa.layout.title.text or "").lower()
+    pa_choro = next(tr for tr in pa.data if tr.type == "choropleth")
+    assert list(pa_choro.locations) == ["PA"]

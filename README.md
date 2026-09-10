@@ -57,7 +57,7 @@ open the `*.streamlit.app` link; they do not need GitHub access.
 | `salt_contract_tracker.xlsx` | All of the above plus a source-coverage sheet |
 | `Road_Salt_Contract_Tracker.html` | Same briefing as Streamlit, including the state-share map and links to published contract PDFs |
 
-The dashboard **Tables & export** tab lists every source PDF in the current filter, with a link to the state's published file. A zip of local PDFs is available only after `scripts/refresh.py` has been run on that machine (PDFs are gitignored and are not on Streamlit Cloud).
+The dashboard **Tables & export** tab lists every source PDF in the current filter. Each row has a server-side fetch (`st.download_button` with the file bytes). **Download all filtered** builds an in-memory zip and lists any URL that failed instead of dropping it. The static HTML file still links out (it has no server).
 
 ## Data sources
 

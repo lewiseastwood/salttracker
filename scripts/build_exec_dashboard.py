@@ -57,7 +57,6 @@ def main() -> None:
         "price_ts_all_annual": fig_html(charts.price_timeseries(state, "weighted_avg_price", "annual")),
         "price_ts_all_quarter": fig_html(charts.price_timeseries(state, "weighted_avg_price", "quarter")),
         "volbars_all": fig_html(charts.state_volume_bars(state)),
-        "sharemap_all": fig_html(charts.state_share_map(state)),
         "volume_all_annual": fig_html(charts.volume_timeseries(state, "annual")),
         "volume_all_quarter": fig_html(charts.volume_timeseries(state, "quarter")),
     }
@@ -69,7 +68,7 @@ def main() -> None:
         plots[f"compare_{code}_annual"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "annual"))
         plots[f"compare_{code}_quarter"] = fig_html(charts.volume_price_comparison(sub, "weighted_avg_price", "quarter"))
         plots[f"volbars_{code}"] = fig_html(charts.state_volume_bars(st_sub))
-        plots[f"sharemap_{code}"] = fig_html(charts.state_share_map(st_sub))
+        plots[f"sharemap_{code}"] = fig_html(charts.state_volume_map(st_sub, code))
         plots[f"bubbles_{code}"] = fig_html(charts.vendor_bubbles(sub, code))
         plots[f"bars_{code}"] = fig_html(charts.vendor_price_bars(sub, "weighted_avg_price", code))
         plots[f"price_{code}_annual"] = fig_html(charts.vendor_price(named, "weighted_avg_price", code, "annual"))
@@ -236,18 +235,19 @@ def main() -> None:
     <div class="card" data-panel="MI">{plots['share_MI']}</div>
     <div class="card" data-panel="PA">{plots['share_PA']}</div>
   </div>
-  <h2>Latest year</h2>
+  <h2>Volume by state</h2>
   <div class="grid">
-    <div class="card" data-panel="all">{plots['sharemap_all']}</div>
-    <div class="card" data-panel="all">{plots['volbars_all']}</div>
+    <div class="card" data-panel="all">{plots['sharemap_MI']}</div>
+    <div class="card" data-panel="all">{plots['sharemap_PA']}</div>
     <div class="card" data-panel="MI">{plots['sharemap_MI']}</div>
     <div class="card" data-panel="MI">{plots['volbars_MI']}</div>
     <div class="card" data-panel="PA">{plots['sharemap_PA']}</div>
     <div class="card" data-panel="PA">{plots['volbars_PA']}</div>
   </div>
-  <p class="note" data-panel="all">{unlike_note} {pa_note}</p>
-  <p class="note" data-panel="PA">{pa_note} Share of estimated requirements in the latest fiscal year.</p>
-  <p class="note" data-panel="MI">Share of contracted tons in the latest fiscal year.</p>
+  <div class="card wide" data-panel="all">{plots['volbars_all']}</div>
+  <p class="note" data-panel="all">{unlike_note} Each map is that state's own tons in the years shown — not a two-state share.</p>
+  <p class="note" data-panel="PA">{pa_note}</p>
+  <p class="note" data-panel="MI">Michigan tons are contracted drop-point awards (MDOT garages and named MiDEAL members).</p>
   <div class="grid3">
     <div class="card" data-panel="all">{plots['bubbles_MI']}</div>
     <div class="card" data-panel="all">{plots['bars_MI']}</div>
@@ -281,7 +281,7 @@ def main() -> None:
   </div>
 
   <h2>Source contracts</h2>
-  <p class="note" style="margin-top:0">Published PDFs behind the tables. Use Open contract to download from the state site.</p>
+  <p class="note" style="margin-top:0">Published PDFs behind the tables. Open contract follows the state's URL. File downloads that fetch bytes live on the Streamlit app (Tables &amp; export), which reports any URL that fails.</p>
   <div class="exports">
     <button type="button" onclick="downloadCsv('docs')">Download contract list (CSV)</button>
   </div>
