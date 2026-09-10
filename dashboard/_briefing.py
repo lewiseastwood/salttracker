@@ -11,6 +11,10 @@ import pandas as pd
 
 from _theme import STATE_NAMES
 
+# Public GitHub repo for change-report links. Streamlit Cloud has no usable
+# `git` binary, so the dashboard must not call git at request time.
+GITHUB_REPO = "lewiseastwood/salttracker"
+
 PA_VOLUME_NOTE = (
     "Pennsylvania tons are estimated requirements committed before the season, "
     "not purchased or delivered."
@@ -121,41 +125,34 @@ def parse_ts(value: str | None) -> datetime | None:
 
 
 def git_head(root: str | Path | None = None) -> str | None:
+    """Local helper. Returns None when git is missing (Streamlit Cloud)."""
     try:
         return subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
             cwd=str(root) if root else None,
             stderr=subprocess.DEVNULL,
             text=True,
-        ).strip()
-    except (OSError, subprocess.CalledProcessError):
+        ).strip() or None
+    except Exception:
         return None
 
 
-def change_report_href(watch: dict, root: str | Path | None = None) -> str | None:
-    path = watch.get("change_report_path") or "data/output/CHANGE_REPORT.txt"
-    try:
-        remote = subprocess.check_output(
-            ["git", "config", "--get", "remote.origin.url"],
-            cwd=str(root) if root else None,
-            stderr=subprocess.DEVNULL,
-            text=True,
-        ).strip()
-    except (OSError, subprocess.CalledProcessError):
-        remote = ""
-    repo = None
-    if remote.endswith(".git"):
-        remote = remote[:-4]
-    if "github.com" in remote:
-        repo = remote.split("github.com")[-1].lstrip(":/")
-    if repo:
-        return f"https://github.com/{repo}/blob/main/{path}"
-    return path
+def change_report_href(watch: dict | None = None, root: str | Path | None = None) -> str:
+    """HTTPS blob URL. Does not call git — Cloud has no repo remote config."""
+    del root  # kept so existing callers can still pass ROOT
+    path = (watch or {}).get("change_report_path") or "data/output/CHANGE_REPORT.txt"
+    return f"https://github.com/{GITHUB_REPO}/blob/main/{path}"
+
+
+def revision_caption(watch: dict | None = None, root: str | Path | None = None) -> tuple[str | None, str]:
+    """Commit id and change-report URL. Never raises; never calls git."""
+    del root
+    state = watch or {}
+    return state.get("data_commit"), change_report_href(state)
 
 
 def revision_line(watch: dict, root: str | Path | None = None) -> str:
-    sha = watch.get("data_commit") or git_head(root)
-    href = change_report_href(watch, root)
+    sha, href = revision_caption(watch, root)
     bits = []
     if sha:
         bits.append(f"Data commit {sha[:7]}")

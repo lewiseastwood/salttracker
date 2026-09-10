@@ -214,3 +214,18 @@ def test_volume_label_depends_on_which_states_are_in_view():
     assert "option-year" in briefing.MI_CAPTURE_NOTE
     assert "post-amendment" in briefing.MI_CAPTURE_NOTE_SHORT
     assert "award-time" in briefing.MI_CAPTURE_NOTE_SHORT
+
+
+def test_revision_caption_does_not_call_git():
+    sha, href = briefing.revision_caption({
+        "data_commit": "abc1234deadbeef",
+        "change_report_path": "data/output/CHANGE_REPORT.txt",
+    })
+    assert sha == "abc1234deadbeef"
+    assert href == (
+        "https://github.com/lewiseastwood/salttracker/blob/main/"
+        "data/output/CHANGE_REPORT.txt"
+    )
+    empty_sha, href2 = briefing.revision_caption({})
+    assert empty_sha is None
+    assert href2.endswith("data/output/CHANGE_REPORT.txt")

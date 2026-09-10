@@ -202,7 +202,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-watch = briefing.watch_strip(briefing.load_watch(WATCH_STATE), briefing.load_jsonl(ALERTS_JSONL))
+watch_state = briefing.load_watch(WATCH_STATE)
+watch = briefing.watch_strip(watch_state, briefing.load_jsonl(ALERTS_JSONL))
 st.markdown(
     f"""<div class="watch {watch['tone']}">
       <div class="watch-line">{escape(watch['headline'])}</div>
@@ -210,15 +211,22 @@ st.markdown(
     </div>""",
     unsafe_allow_html=True,
 )
-sha = briefing.load_watch(WATCH_STATE).get("data_commit") or briefing.git_head(ROOT)
-href = briefing.change_report_href(watch, ROOT)
-if href and str(href).startswith("http"):
-    st.caption(f"Data commit `{sha or '—'}` · [Change report]({href})")
+# Do not call git here. Streamlit Cloud has no git binary, and a stale
+# _briefing import has no git_head attribute (AttributeError on Cloud).
+rev = getattr(briefing, "revision_caption", None)
+if callable(rev):
+    sha, href = rev(watch_state, ROOT)
 else:
-    st.caption(
-        f"Data commit `{sha or '—'}` · Change report: "
-        f"`{href or 'data/output/CHANGE_REPORT.txt'}`"
+    sha = watch_state.get("data_commit")
+    href = (
+        "https://github.com/lewiseastwood/salttracker/blob/main/"
+        + (watch_state.get("change_report_path") or "data/output/CHANGE_REPORT.txt")
     )
+st.caption(
+    f"Data commit `{sha or '—'}` · [Change report]({href})"
+    if href and str(href).startswith("http")
+    else f"Data commit `{sha or '—'}` · Change report: `{href or 'data/output/CHANGE_REPORT.txt'}`"
+)
 
 f1, f2, f3, f4, f5, f6 = st.columns([1.3, 1.5, 0.85, 0.85, 1.2, 1.6])
 with f1:

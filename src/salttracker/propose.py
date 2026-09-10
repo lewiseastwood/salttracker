@@ -470,6 +470,8 @@ def run(root: str, staging: str | None = None, *,
     )
     watch["change_report_path"] = "data/output/CHANGE_REPORT.txt"
     parent = os.environ.get("GITHUB_SHA") or _git_sha(root)
+    if parent:
+        watch["data_commit"] = parent
     if label == "routine" and (fetch["new_docs"] or fetch["changed"]):
         watch["auto_updated_unreviewed"] = True
         if parent:
