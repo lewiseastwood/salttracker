@@ -1,8 +1,7 @@
-"""Send refresh alerts off the machine.
+"""Notify a person about Pennsylvania RTK send/response.
 
-A scheduled run that only appends to alerts.jsonl is silent if nobody opens the
-folder. A webhook (Slack incoming, Teams, generic POST) or an SMTP mailbox is
-what makes a new FY2028 contract visible in June.
+Weekly dashboard refresh does not use this. A missing webhook or mailbox is a
+no-op so drafts can exist before Lewis has given a reply-to address.
 """
 from __future__ import annotations
 
@@ -18,6 +17,13 @@ from .sources import UA
 
 FAIL_KINDS = frozenset({"parse-failed", "listing-empty", "listing-unfetched",
                         "download-failed"})
+
+
+def channel_configured() -> bool:
+    hook = os.environ.get("SALTTRACKER_WEBHOOK_URL", "").strip()
+    email = os.environ.get("SALTTRACKER_ALERT_EMAIL", "").strip()
+    host = os.environ.get("SALTTRACKER_SMTP_HOST", "").strip()
+    return bool(hook or (email and host))
 
 
 def alert_body(alerts: list[dict]) -> str:
@@ -66,8 +72,57 @@ def send_email(alerts_text: str, count: int, failed: bool = False) -> str:
     return f"emailed {to}"
 
 
+def followup_event(kind: str, text: str) -> list[str]:
+    """Ping that an RTK was sent or a written response was recorded.
+
+    No-op if no channel is configured. Does not send the government letters.
+    """
+    if not channel_configured():
+        return []
+    subject = (
+        "SaltTracker: RTK sent to government"
+        if kind == "sent"
+        else "SaltTracker: government RTK response recorded"
+    )
+    payload = {"ts": "", "source": "salttracker", "kind": f"followup-{kind}", "text": text}
+    notes: list[str] = []
+    hook = os.environ.get("SALTTRACKER_WEBHOOK_URL", "").strip()
+    if hook:
+        try:
+            notes.append(post_webhook(hook, payload))
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            notes.append(f"webhook failed: {exc}")
+    if os.environ.get("SALTTRACKER_ALERT_EMAIL") and os.environ.get("SALTTRACKER_SMTP_HOST"):
+        try:
+            notes.append(_email_followup(subject, text))
+        except (OSError, smtplib.SMTPException, RuntimeError) as exc:
+            notes.append(f"email failed: {exc}")
+    return notes
+
+
+def _email_followup(subject: str, body: str) -> str:
+    to = os.environ.get("SALTTRACKER_ALERT_EMAIL", "").strip()
+    host = os.environ.get("SALTTRACKER_SMTP_HOST", "").strip()
+    if not (to and host):
+        raise RuntimeError("SALTTRACKER_ALERT_EMAIL and SALTTRACKER_SMTP_HOST required")
+    msg = EmailMessage()
+    msg["Subject"] = subject
+    msg["From"] = os.environ.get("SALTTRACKER_SMTP_FROM", to)
+    msg["To"] = to
+    msg.set_content(body)
+    port = int(os.environ.get("SALTTRACKER_SMTP_PORT", "587"))
+    user = os.environ.get("SALTTRACKER_SMTP_USER", "")
+    password = os.environ.get("SALTTRACKER_SMTP_PASS", "")
+    with smtplib.SMTP(host, port, timeout=20) as smtp:
+        smtp.starttls()
+        if user:
+            smtp.login(user, password)
+        smtp.send_message(msg)
+    return f"emailed {to}"
+
+
 def dispatch(alerts: list[dict], stamp: str) -> list[str]:
-    """Fire configured notifiers. Missing config is a no-op, not an error."""
+    """Local refresh.py alerts. Missing config is a no-op. Not used weekly."""
     if not alerts:
         return []
     payload = {"ts": stamp, "source": "salttracker", "alerts": alerts,

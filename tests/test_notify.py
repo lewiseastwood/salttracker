@@ -41,3 +41,30 @@ def test_dispatch_is_a_noop_without_config(monkeypatch):
     monkeypatch.delenv("SALTTRACKER_SMTP_HOST", raising=False)
     assert dispatch([{"kind": "new-season", "detail": "x"}], "2026-01-01") == []
     assert dispatch([], "2026-01-01") == []
+
+
+def test_followup_event_is_a_noop_without_config(monkeypatch):
+    from salttracker.notify import followup_event
+    monkeypatch.delenv("SALTTRACKER_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SALTTRACKER_ALERT_EMAIL", raising=False)
+    monkeypatch.delenv("SALTTRACKER_SMTP_HOST", raising=False)
+    assert followup_event("sent", "RTK letters sent:\n- DGS") == []
+    assert followup_event("responded", "DGS:2026-09-10") == []
+
+
+def test_followup_event_posts_webhook(monkeypatch):
+    from salttracker import notify
+
+    posted = []
+
+    def fake_post(url, payload, timeout=20):
+        posted.append((url, payload))
+        return "webhook 200"
+
+    monkeypatch.setenv("SALTTRACKER_WEBHOOK_URL", "https://example.com/hook")
+    monkeypatch.delenv("SALTTRACKER_ALERT_EMAIL", raising=False)
+    monkeypatch.setattr(notify, "post_webhook", fake_post)
+    notes = notify.followup_event("sent", "RTK letters sent:\n- DGS")
+    assert notes == ["webhook 200"]
+    assert posted[0][1]["kind"] == "followup-sent"
+    assert "DGS" in posted[0][1]["text"]

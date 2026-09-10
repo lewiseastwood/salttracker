@@ -84,18 +84,82 @@ come from the Wayback Machine (`sources.py:discover_michigan_archived`).
 
 ## Automation
 
-The durable schedule is **GitHub Actions** (`.github/workflows/refresh.yml`).
-Cadence is two UTC cron fields: daily at 11:15 UTC (07:15 Eastern / EDT) in
-June–August, Mondays otherwise. Each scrape attempt — including a failed listing
-or parse — commits `watch_state.json` so the dashboard strip is not a stale quiet
-week, and so GitHub does not disable the schedule after 60 days of no commits.
-CSVs update when the export completes. Slack/email alerts are optional secrets:
+The weekly job **detects and proposes**. It does not `git push` to `main`.
+
+`.github/workflows/refresh.yml` runs Mondays at 11:15 UTC (07:15 Eastern), and
+on `workflow_dispatch`. Each run:
+
+1. Fetches the live DTMB listing and walks eMarketplace SIDs into
+   `data/staging/` — never over the live tracker files first.
+2. Diffs downloads against `data/manifest.json` by sha256.
+3. On a changed Michigan contract path, copies the prior bytes into
+   `data/archive/mi/{sha256}_{filename}` (committed on the PR — Actions cache
+   is not the home) and submits the live URL to the Wayback Save Page Now API.
+   A snapshot URL becomes `source_url` only if Save Page Now actually returned
+   one. A failed save, or a save with no snapshot URL, is **needs-review** and
+   does not invent a Wayback address.
+4. Classifies **new** files against `data/patterns/document_types.json`. Known
+   shapes get a structured JSON record (document type, tons_basis, printed
+   dates, fiscal year, what the volume column describes, confidence, column
+   signature, and an explicit `undetermined` list). Anything not in the
+   registry is unfamiliar by definition and is **not** parsed onto a chart.
+   New files also go through the classify API when `SALTTRACKER_CLASSIFY_API_KEY`
+   is set; the API cannot invent a type the registry does not list, and it
+   cannot mark columns as matching.
+5. A file is **routine** only if the type matches **and** an extracted header
+   set equals a recorded `column_signatures` entry exactly **and** every
+   assertion passes **and** `undetermined` is empty. Type name alone is not
+   enough — the FY2027 estimates attachment is the nine-column layout; FY2026
+   used extra COSTARS Initial/Balance columns, which is column drift even
+   though the type name is the same. Overwritten files are re-checked for
+   columns only (printed dates on last year's Michigan notice are not
+   re-litigated). Hard assertions also include empty provenance, a tons_basis
+   not already in that state's series, a supplier disappearing, printed dates
+   outside the keyed fiscal year, the same sha256 under a new name, a state
+   total moving more than **10%** versus the live published figure (or a
+   **new** fiscal year 10% off the prior year), and MiDEAL contract
+   renumbering. `260000000712` / `713` are never auto-linked to `180000000768`
+   / `787`. Historical year-over-year gaps already on the chart are not
+   re-fired every Monday.
+6. Opens a PR with a plain-text change report
+   (`data/output/CHANGE_REPORT.txt`). Label **routine** or **needs-review**.
+   Routine PRs **auto-merge** so Streamlit and the HTML pack on `main` update.
+   Needs-review PRs wait. There is no weekly email. There is no other publish
+   path.
+
+This tracker **recognizes shapes it has seen, not meaning it has not**. A new
+state or document type still needs a person to decide what the numbers are
+before they go on a chart.
+
+The dashboard strip shows the last refresh time, the data commit, and a link
+to the change report. After a routine auto-merge that **changed files**, the
+strip reads **auto-updated, not yet reviewed** until you clear it. Quiet weeks
+(no new or changed files) do not set that flag.
+
+```
+python scripts/refresh.py --mark-reviewed   # then commit and push
+```
+
+To undo the last routine auto-merge, rebuild the dashboard, and leave a revert
+commit (does not push):
+
+```
+python scripts/refresh.py --revert-last     # then push main
+```
 
 | Secret | Purpose |
 |---|---|
 | `SALTTRACKER_CONTACT` | Optional mailbox (not used as the User-Agent; michigan.gov 403s a crawler UA) |
-| `SALTTRACKER_WEBHOOK_URL` | Slack / Teams / generic POST when a new season or document appears |
-| `SALTTRACKER_ALERT_EMAIL` | Optional; also set `SALTTRACKER_SMTP_HOST` / `_USER` / `_PASS` |
+| `SALTTRACKER_CLASSIFY_API_KEY` | OpenAI-compatible key used only to classify new files |
+| `SALTTRACKER_CLASSIFY_API_URL` | Optional; default `https://api.openai.com/v1/chat/completions` |
+| `SALTTRACKER_CLASSIFY_MODEL` | Optional; default `gpt-4o-mini` |
+| `SALTTRACKER_WEBHOOK_URL` | Optional ping when an RTK is sent or a response is recorded — not used by weekly refresh |
+| `SALTTRACKER_ALERT_EMAIL` | Same, if you prefer email; also set `SALTTRACKER_SMTP_HOST` / `_USER` / `_PASS` / `_FROM` |
+
+Allow GitHub Actions to create pull requests (repo Settings → Actions). Routine
+auto-merge needs a `main` ruleset that the `github-actions` bot can squash
+into; if reviews are required, routine PRs will sit until you merge, and the
+dashboard will not update until then.
 
 michigan.gov's Akamai edge 403s a custom crawler User-Agent. Requests use a
 current Chrome identity plus browser `Accept` / `Sec-Fetch-*` headers, still
@@ -115,21 +179,20 @@ published at an address that does not exist yet. Each run:
    matching on title, and pulls the estimates and bid-sheet attachments from any
    new one. This is the earliest signal a new cycle exists — the solicitation is
    posted months before the COSTARS packet. The scan is checkpointed in
-   `data/interim/pa_sid_scan.json`, so a daily run only pays for ids added since
+   `data/interim/pa_sid_scan.json`, so a weekly run only pays for ids added since
    the last one. (eMarketplace's own keyword search returns `app_offline.htm`,
    which is why ids are walked rather than queried.)
 3. Content-hashes every download, so reruns are idempotent and the same combined
    change notice served under five contract numbers is parsed once.
-4. Diffs coverage against the previous run and **raises an alert** for a newly
-   published season, a supplier not seen before, or a new document. Alerts print
-   to the console, append to `data/alerts.jsonl`, and POST / email if those
-   secrets are set. Run state lives in `data/watch_state.json`.
 
-Each run also appends to `data/refresh_log.jsonl`.
+`python scripts/refresh.py` remains the local scrape/parse/export. It is not
+what GitHub Actions runs.
+
+Each local refresh still appends to `data/refresh_log.jsonl`.
 
 ## Pennsylvania follow-up (pilot)
 
-Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack for the five Pennsylvania counties with the most FY2027 estimated lot requirements (Allegheny, Westmoreland, Luzerne, Washington, Erie), plus one DGS letter. Those county figures are geographic lots, not county-government purchases.
+Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack: one letter to DGS and one to each of the five county AOROs (Allegheny, Westmoreland, Luzerne, Washington, Erie). County letters ask that county's own COSTARS and off-contract salt for FY2022–FY2027 — not municipal purchases. The DGS letter asks for weekly shipment reports for those seasons, FY2022–FY2023 award/price files, FY2025 estimates, and a full 67-county FY2023 estimates table. County lot figures on the tracker are geography, not county-government purchases.
 
 ```bash
 # Put these in a gitignored .env, or export them. Drafts are refused without both.
@@ -138,7 +201,7 @@ Statewide COSTARS packets do not include a county's own salt purchase if it buys
 PYTHONPATH=src .venv/bin/python scripts/pa_followup.py
 ```
 
-That writes `data/output/pa_followup/` (gitignored): a contacts workbook and `.eml` drafts (county letters plus a DGS letter). Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED; file by mail. The DGS draft goes to the DGS AORO (`DGS-RTK@pa.gov`), not the commodity specialist, and attaches a filled copy of DGS’s standard RTKL request form. Drafts are **refused** unless `SALTTRACKER_FOLLOWUP_REPLY_TO` and `SALTTRACKER_FOLLOWUP_ADDRESS` are set (the RTKL requires a name and a verifiable postal address). Those values belong in `.env` or the environment — never in `data/pa_followup/contacts.csv`. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. There is no inbox watcher: `--poll-inbox` was removed because fetching mail would mark messages read on many servers, and five letters are a mail-client filter, not a daemon.
+That writes `data/output/pa_followup/` (gitignored): a contacts workbook and `.eml` drafts (county letters plus a DGS letter). Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED; file by mail. The DGS draft goes to the DGS AORO (`DGS-RTK@pa.gov`), not the commodity specialist, and attaches a filled copy of DGS’s standard RTKL request form. Drafts are **refused** unless `SALTTRACKER_FOLLOWUP_REPLY_TO` and `SALTTRACKER_FOLLOWUP_ADDRESS` are set (the RTKL requires a name and a verifiable postal address). Those values belong in `.env` or the environment — never in `data/pa_followup/contacts.csv`. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus SMTP secrets. Do not send until the reply-to and postal address are set. After a confirmed send, and again when you fill `responded_on` and run `--clock`, it can ping `SALTTRACKER_WEBHOOK_URL` / `SALTTRACKER_ALERT_EMAIL` if those are set. Missing ping config is a no-op. There is no inbox watcher: `--poll-inbox` was removed because fetching mail would mark messages read on many servers, and five letters are a mail-client filter, not a daemon.
 
 **Clock.** The five-business-day period starts when the **AORO receives** the request, not when you hit send (65 P.S. § 67.901). Email that arrives after regular business hours is received the next business day. Fill `received_on` in `data/pa_followup/contacts.csv` with that receipt date (`YYYY-MM-DD`); fill `responded_on` when a written response arrives. `--clock` computes `response_due` (five Commonwealth business days; day of receipt not counted), days remaining, overdue flags, and the 15-business-day appeal deadline from a deemed denial. It prints to stdout and does not send mail, write drafts, or need the sender env vars.
 
@@ -252,10 +315,13 @@ src/salttracker/
   parsers/michigan.py     DTMB/MiDEAL cumulative contracts
   parsers/pennsylvania.py DGS/COSTARS county pricing
 dashboard/app.py          Streamlit dashboard
-scripts/refresh.py        end-to-end refresh
+scripts/refresh.py        local scrape + parse; --revert-last / --mark-reviewed
+scripts/propose.py        weekly detect-and-propose (staging + change report)
+scripts/open_refresh_pr.sh  open PR; auto-merge routine (no weekly email)
+scripts/persist_refresh.sh  commit proposal on the current branch; never pushes
+data/patterns/document_types.json  document types this tracker already understands
+data/archive/mi/          prior Michigan PDFs, named {sha256}_{filename}
 scripts/pa_followup.py    PA RTK drafts + --clock (does not send unless confirmed)
-tests/test_validation.py  document-anchored validation
-scripts/persist_refresh.sh  commit scrape outputs including failures
 tests/test_validation.py  document-anchored validation
 data/raw/                 downloaded source documents (by state)
 data/output/              CSV + Excel deliverables

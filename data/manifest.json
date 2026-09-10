@@ -1,6 +1,118 @@
 [
   {
     "state": "MI",
+    "name": "768_snap2023-01.pdf",
+    "url": "https://web.archive.org/web/20230127073006id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/006/180000000768.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "46cc474449b8edfe1b80bd43bd197642c88ffeb4d3ddee7ed350ee03d12d9596",
+    "bytes": 6912762,
+    "fetched_at": "2026-09-08T17:55:04",
+    "archived_timestamp": "20230127073006",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20230127073006/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:55:04"
+  },
+  {
+    "state": "MI",
+    "name": "768_snap2025-04.pdf",
+    "url": "https://web.archive.org/web/20250418052020id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/006/180000000768.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "859c8a7e71999a273d0ab32c5bd0f497448629cfdd3e5b2da463408c67f9926d",
+    "bytes": 16178514,
+    "fetched_at": "2026-09-08T17:54:51",
+    "archived_timestamp": "20250418052020",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20250418052020/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:54:51"
+  },
+  {
+    "state": "MI",
+    "name": "768_snap2026-05.pdf",
+    "url": "https://web.archive.org/web/20260520035130id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/006/180000000768.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "5cd173a0ecf669cdeb8e3a6f3b2c13e5599f17c3785a2758f11b55a8201e9860",
+    "bytes": 16774576,
+    "fetched_at": "2026-09-08T17:54:45",
+    "archived_timestamp": "20260520035130",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20260520035130/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:54:45"
+  },
+  {
+    "state": "MI",
+    "name": "787_snap2023-01.pdf",
+    "url": "https://web.archive.org/web/20230127073006id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/004/180000000787.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "dc7869be53094ec987efb934745f55d51d4b570e410bb358557731a3106f454e",
+    "bytes": 6763380,
+    "fetched_at": "2026-09-08T17:55:05",
+    "archived_timestamp": "20230127073006",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20230127073006/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:55:05"
+  },
+  {
+    "state": "MI",
+    "name": "787_snap2025-04.pdf",
+    "url": "https://web.archive.org/web/20250418052020id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/004/180000000787.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "e6779750843af8f83e716bcd3d4ab3221c9f0a7ccdddaedafb8f17cd827064d0",
+    "bytes": 10278682,
+    "fetched_at": "2026-09-08T17:55:02",
+    "archived_timestamp": "20250418052020",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20250418052020/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:55:02"
+  },
+  {
+    "state": "MI",
+    "name": "787_snap2026-05.pdf",
+    "url": "https://web.archive.org/web/20260520035130id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/004/180000000787.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "0476186ff4b1b9ddda5cee2923578f286aaff01593ca830dba5a54fc7a27d2c9",
+    "bytes": 10718290,
+    "fetched_at": "2026-09-08T17:54:46",
+    "archived_timestamp": "20260520035130",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20260520035130/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:54:46"
+  },
+  {
+    "state": "MI",
+    "name": "791_snap2023-01.pdf",
+    "url": "https://web.archive.org/web/20230127073006id_/https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/MiDEAL-Media/004/180000000791.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "1fe2dd8f5d8f66be85b49e08fe018aad23ebdedf5935bd9dc925297bd5129217",
+    "bytes": 1286228,
+    "fetched_at": "2026-09-08T17:55:06",
+    "archived_timestamp": "20230127073006",
+    "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+    "page_url": "https://web.archive.org/web/20230127073006/https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock",
+    "last_verified_at": "2026-09-08T17:55:06"
+  },
+  {
+    "state": "MI",
     "name": "MI_FY2027_CompassMinerals_260000000713.pdf",
     "url": "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/Procurement/Contracts/022/260000000713.pdf?rev=044d384e33124f69856ff95f406d8b63&hash=EDE0618298A9461C637E9129261588D0",
     "path": "/home/runner/work/salttracker/salttracker/data/raw/MI/MI_FY2027_CompassMinerals_260000000713.pdf",
@@ -12,7 +124,8 @@
     "fetched_at": "2026-09-09T13:34:00",
     "archived_timestamp": null,
     "notes": "michigan.gov live listing",
-    "last_verified_at": "2026-09-09T13:34:00"
+    "last_verified_at": "2026-09-09T13:34:00",
+    "page_url": "https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock"
   },
   {
     "state": "MI",
@@ -27,7 +140,8 @@
     "fetched_at": "2026-09-09T13:33:59",
     "archived_timestamp": null,
     "notes": "michigan.gov live listing",
-    "last_verified_at": "2026-09-09T13:33:59"
+    "last_verified_at": "2026-09-09T13:33:59",
+    "page_url": "https://www.michigan.gov/dtmb/procurement/mideal-extended-purchasing-program/mideal-contract-search/categories/folder-2/salt-bulk-rock"
   },
   {
     "state": "PA",
@@ -61,6 +175,22 @@
   },
   {
     "state": "PA",
+    "name": "PA_FY2024_COSTARS.pdf",
+    "url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars/sodium%20chloride%20road%20salt%202023-2024%20season%20contract.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "524ab38db9d0f7bf593ba11e5f752078907d948991f39fc2c18ae2b907f4bece",
+    "bytes": 1189136,
+    "fetched_at": "2026-09-09T13:34:03",
+    "archived_timestamp": null,
+    "notes": "local parser filename; same bytes as PA_live_sodium_chloride_road_salt_2023-2024_season_contract.pdf",
+    "last_verified_at": "2026-09-09T13:34:03",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars"
+  },
+  {
+    "state": "PA",
     "name": "PA_FY2025_COSTARS.pdf",
     "url": "https://web.archive.org/web/20250205034653id_/https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars/sodium%20chloride%20(road%20salt)%202024-2025%20season%20contract.pdf",
     "path": "/home/runner/work/salttracker/salttracker/data/raw/PA/PA_FY2025_COSTARS.pdf",
@@ -72,7 +202,8 @@
     "fetched_at": "2026-09-09T13:15:52",
     "archived_timestamp": null,
     "notes": "seed",
-    "last_verified_at": "2026-09-09T13:15:52"
+    "last_verified_at": "2026-09-09T13:15:52",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars"
   },
   {
     "state": "PA",
@@ -87,7 +218,8 @@
     "fetched_at": "2026-09-09T13:15:51",
     "archived_timestamp": null,
     "notes": "seed",
-    "last_verified_at": "2026-09-09T13:15:51"
+    "last_verified_at": "2026-09-09T13:15:51",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars"
   },
   {
     "state": "PA",
@@ -102,7 +234,8 @@
     "fetched_at": "2026-09-09T13:15:50",
     "archived_timestamp": null,
     "notes": "seed",
-    "last_verified_at": "2026-09-09T13:15:50"
+    "last_verified_at": "2026-09-09T13:15:50",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/costars/member-information/documents"
   },
   {
     "state": "PA",
@@ -117,7 +250,8 @@
     "fetched_at": "2026-09-09T13:15:57",
     "archived_timestamp": null,
     "notes": "emarketplace 6100056192 attachment: 02 Exhibit 2 - 2022-23 Sodium Chloride Bid Sheet.pdf",
-    "last_verified_at": "2026-09-09T13:15:57"
+    "last_verified_at": "2026-09-09T13:15:57",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100056192"
   },
   {
     "state": "PA",
@@ -132,7 +266,8 @@
     "fetched_at": "2026-09-09T13:15:59",
     "archived_timestamp": null,
     "notes": "emarketplace 6100063746 attachment: 02 Attachment B - 2025-26 Sodium Chloride Bid Sheet.pdf",
-    "last_verified_at": "2026-09-09T13:15:59"
+    "last_verified_at": "2026-09-09T13:15:59",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100063746"
   },
   {
     "state": "PA",
@@ -147,7 +282,8 @@
     "fetched_at": "2026-09-08T19:05:22",
     "archived_timestamp": null,
     "notes": "emarketplace 6100053321 attachment: 7. Attachment B - Final Reverse Auction Bid Sheet 052521.pdf",
-    "last_verified_at": "2026-09-09T13:15:55"
+    "last_verified_at": "2026-09-09T13:15:55",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100053321"
   },
   {
     "state": "PA",
@@ -162,7 +298,8 @@
     "fetched_at": "2026-09-08T19:05:22",
     "archived_timestamp": null,
     "notes": "emarketplace 6100053321 attachment: 8. Exhibit 3 to Specifications - Initial Reverse Auction Bid Sheet 051",
-    "last_verified_at": "2026-09-09T13:15:56"
+    "last_verified_at": "2026-09-09T13:15:56",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100053321"
   },
   {
     "state": "PA",
@@ -177,7 +314,8 @@
     "fetched_at": "2026-09-08T19:05:24",
     "archived_timestamp": null,
     "notes": "emarketplace 6100065611 attachment: 04 Attachment B - Sodium Chloride Bid Sheet rev 5-20.pdf",
-    "last_verified_at": "2026-09-09T13:16:00"
+    "last_verified_at": "2026-09-09T13:16:00",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100065611"
   },
   {
     "state": "PA",
@@ -192,7 +330,8 @@
     "fetched_at": "2026-09-09T13:15:55",
     "archived_timestamp": null,
     "notes": "emarketplace 6100053321 attachment: 4. Exhibit 1 to Specifications - Sodium Chloride Estimates 2021-2022.x",
-    "last_verified_at": "2026-09-09T13:15:55"
+    "last_verified_at": "2026-09-09T13:15:55",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100053321"
   },
   {
     "state": "PA",
@@ -207,7 +346,8 @@
     "fetched_at": "2026-09-09T13:15:56",
     "archived_timestamp": null,
     "notes": "emarketplace 6100056192 attachment: 01 Exhibit 1 - Sodium Chloride (Bulk Road Salt) Estimates 2022-2023 Re",
-    "last_verified_at": "2026-09-09T13:15:56"
+    "last_verified_at": "2026-09-09T13:15:56",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100056192"
   },
   {
     "state": "PA",
@@ -222,7 +362,24 @@
     "fetched_at": "2026-09-09T13:15:58",
     "archived_timestamp": null,
     "notes": "emarketplace 6100063746 attachment: 01 Attachment A - Sodium Chloride (Bulk Road Salt) Estimates 2025-26.p",
-    "last_verified_at": "2026-09-09T13:15:58"
+    "last_verified_at": "2026-09-09T13:15:58",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100063746"
+  },
+  {
+    "state": "PA",
+    "name": "PA_estimates_FY2027_6100065611.pdf",
+    "url": "https://www.emarketplace.state.pa.us/FileDownload.aspx?file=6100065611/Solicitation_21.pdf&OriginalFileName=03 Attachment A - Sodium Chloride (Bulk Road Salt) Estimates rev 5-20.pdf",
+    "path": "",
+    "vendor": null,
+    "fy": null,
+    "contract_no": null,
+    "sha256": "e0a69031842bd761f0832b5a08c6cdffc9621543dd3b72f8a2fcaf14a34feb04",
+    "bytes": 767967,
+    "fetched_at": "2026-09-08T19:05:23",
+    "archived_timestamp": null,
+    "notes": "local parser filename; same bytes as PA_estimates_FYx_6100065611.pdf",
+    "last_verified_at": "2026-09-09T13:16:00",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100065611"
   },
   {
     "state": "PA",
@@ -237,7 +394,8 @@
     "fetched_at": "2026-09-08T19:05:23",
     "archived_timestamp": null,
     "notes": "emarketplace 6100065611 attachment: 03 Attachment A - Sodium Chloride (Bulk Road Salt) Estimates rev 5-20.",
-    "last_verified_at": "2026-09-09T13:16:00"
+    "last_verified_at": "2026-09-09T13:16:00",
+    "page_url": "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100065611"
   },
   {
     "state": "PA",
@@ -252,7 +410,8 @@
     "fetched_at": "2026-09-09T13:34:02",
     "archived_timestamp": null,
     "notes": "costars aem listing",
-    "last_verified_at": "2026-09-09T13:34:02"
+    "last_verified_at": "2026-09-09T13:34:02",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars"
   },
   {
     "state": "PA",
@@ -267,7 +426,8 @@
     "fetched_at": "2026-09-09T13:34:01",
     "archived_timestamp": null,
     "notes": "costars aem listing",
-    "last_verified_at": "2026-09-09T13:34:01"
+    "last_verified_at": "2026-09-09T13:34:01",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/costars/member-information/documents"
   },
   {
     "state": "PA",
@@ -282,7 +442,8 @@
     "fetched_at": "2026-09-09T13:34:00",
     "archived_timestamp": null,
     "notes": "costars aem listing",
-    "last_verified_at": "2026-09-09T13:34:00"
+    "last_verified_at": "2026-09-09T13:34:00",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/costars/member-information/documents"
   },
   {
     "state": "PA",
@@ -297,7 +458,8 @@
     "fetched_at": "2026-09-09T13:34:03",
     "archived_timestamp": null,
     "notes": "costars aem listing",
-    "last_verified_at": "2026-09-09T13:34:03"
+    "last_verified_at": "2026-09-09T13:34:03",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars"
   },
   {
     "state": "PA",
@@ -312,6 +474,7 @@
     "fetched_at": "2026-09-09T13:34:03",
     "archived_timestamp": null,
     "notes": "costars aem listing",
-    "last_verified_at": "2026-09-09T13:34:03"
+    "last_verified_at": "2026-09-09T13:34:03",
+    "page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars"
   }
 ]

@@ -25,6 +25,7 @@ def test_listing_discovers_a_contract_number_that_is_not_in_the_vendor_map():
     assert docs[0].fy == 2028
     assert docs[0].vendor is None
     assert "270000000801" not in sources.MI_CONTRACT_VENDOR
+    assert docs[0].page_url == sources.MI_SALT_PAGE
 
 
 def test_fetch_listing_empty_page_is_empty_not_seeded(monkeypatch):
@@ -103,3 +104,49 @@ def test_pa_aem_listing_finds_salt_pdfs_not_tracking_sheets(monkeypatch):
     seed_urls = {u for _n, u, _fy in sources.PA_SEED_DOCS}
     # Live AEM URL may equal a seed URL; that is listing, not the seed list.
     assert docs[0].notes == "costars aem listing"
+    assert docs[0].page_url in sources.PA_COSTARS_AEM_FOLDERS
+
+
+def test_page_url_from_file_url_is_derived_not_guessed():
+    emkt = (
+        "https://www.emarketplace.state.pa.us/FileDownload.aspx"
+        "?file=6100065611/Solicitation_21.pdf&OriginalFileName=estimates.pdf"
+    )
+    assert sources.page_url_from_file_url(emkt) == (
+        "https://www.emarketplace.state.pa.us/Solicitations.aspx?SID=6100065611"
+    )
+    change = (
+        "https://www.emarketplace.state.pa.us/FileDownload.aspx"
+        "?file=4600016539%5CChangeNotice.pdf"
+    )
+    assert sources.page_url_from_file_url(change) is None
+    costars = (
+        "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/"
+        "documents/costars/sodium%20chloride%20road%20salt%202023-2024%20season%20contract.pdf"
+    )
+    assert sources.page_url_from_file_url(costars) == sources.PA_COSTARS_AEM_FOLDERS[1]
+    wayback = (
+        "https://web.archive.org/web/20260520035130id_/"
+        "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/"
+        "Procurement/Contracts/MiDEAL-Media/006/180000000768.pdf"
+    )
+    assert sources.page_url_from_file_url(wayback) == (
+        f"https://web.archive.org/web/20260520035130/{sources.MI_SALT_PAGE}"
+    )
+    assert sources.page_url_from_file_url(None) is None
+    snap = sources.known_local_provenance()["768_snap2026-05.pdf"]
+    assert "20260520035130id_" in snap["url"]
+    assert "180000000768" in snap["url"]
+
+
+def test_snap_identity_is_keyed_off_printed_change_notices_not_wayback_dates():
+    ident = sources.MI_SNAP_IDENTITY
+    assert ident["768_snap2023-01.pdf"]["newest_cn"] == 13
+    assert ident["768_snap2023-01.pdf"]["kind"] == "option_year"
+    assert ident["768_snap2023-01.pdf"]["cn_effective"] == "2023-06-20"
+    assert ident["768_snap2025-04.pdf"]["kind"] == "mid_season_amendment"
+    assert ident["787_snap2026-05.pdf"]["newest_season"] == "2025/2026"
+    assert ident["791_snap2023-01.pdf"]["newest_season"] == "2021/2022"
+    assert "CN3" in sources.snap_document_label("791_snap2023-01.pdf")
+    assert sources.snap_document_label("PA_FY2024_COSTARS.pdf") == "PA_FY2024_COSTARS.pdf"
+

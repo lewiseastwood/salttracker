@@ -30,7 +30,7 @@ import pandas as pd
 from .parsers import michigan as mi_parser
 from .parsers import pa_estimates as pa_est_parser
 from .parsers import pennsylvania as pa_parser
-from .sources import MI_CONTRACT_VENDOR
+from .sources import MI_CONTRACT_VENDOR, known_local_provenance, page_url_from_file_url
 
 # FY2027 is the live contracting cycle at time of build; earlier years are settled.
 HISTORICAL_FY_RANGE = (2022, 2026)
@@ -47,7 +47,8 @@ RAW_COLUMNS = [
     "price_costars", "contract_no", "record_type", "measure_basis", "tons_basis",
     "penndot_tons", "costars_tons", "agency_tons", "purchasing_entity",
     # Provenance: enough to re-find and re-verify any single row at its source.
-    "source_doc", "source_page", "source_url", "source_sha256", "retrieved_at",
+    "source_doc", "source_page", "source_url", "source_page_url", "source_sha256",
+    "retrieved_at",
 ]
 
 LOT_RECORD_TYPES = ("award", "price_only", "volume_only")
@@ -477,51 +478,159 @@ def annotate_semantics(df: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
+def _blank(value) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, float) and pd.isna(value):
+        return None
+    text = str(value).strip()
+    if not text or text.lower() in ("nan", "none"):
+        return None
+    return text
+
+
+def _hash_index(entries: list[dict]) -> dict[str, dict]:
+    """sha256 → manifest entry, preferring the one that carries a file URL."""
+    by_hash: dict[str, dict] = {}
+    for entry in entries:
+        digest = _blank(entry.get("sha256"))
+        if not digest:
+            continue
+        prior = by_hash.get(digest)
+        if prior is None or (_blank(entry.get("url")) and not _blank(prior.get("url"))):
+            by_hash[digest] = entry
+    return by_hash
+
+
+def _disk_digest(name: str) -> tuple[str | None, str | None]:
+    path = next(iter(glob.glob(os.path.join("data", "raw", "*", name))), None)
+    if not path:
+        return None, None
+    with open(path, "rb") as fh:
+        digest = hashlib.sha256(fh.read()).hexdigest()
+    stamp = dt.datetime.fromtimestamp(os.path.getmtime(path)).isoformat(
+        timespec="seconds")
+    return digest, stamp
+
+
 def attach_provenance(df: pd.DataFrame, manifest_path: str) -> pd.DataFrame:
     """Stamp each row with where its document came from and when.
 
-    Without this a figure in the export can only be traced as far as a filename,
-    which is not enough to re-verify it once the state has replaced the file at
-    that URL.
+    Lookup is by filename, then by content hash. Parsers keep a local alias
+    (``PA_estimates_FY2027_…``, ``768_snap2026-05.pdf``) while the manifest
+    records the name the downloader used for the same bytes. Matching only
+    by name left those rows with an empty URL, which is not a fetch failure.
     """
     if df.empty:
         return df
     out = df.copy()
-    for col in ("source_url", "source_sha256", "retrieved_at"):
+    for col in ("source_url", "source_page_url", "source_sha256", "retrieved_at"):
         if col not in out.columns:
             out[col] = None
     try:
         with open(manifest_path) as fh:
             entries = json.load(fh)
     except (OSError, ValueError):
-        return out
+        entries = []
 
-    index = {e.get("name"): e for e in entries if e.get("name")}
+    by_name = {e.get("name"): e for e in entries if e.get("name")}
+    by_hash = _hash_index(entries)
+    known = known_local_provenance()
     names = out["source_doc"].fillna("")
-    out["source_url"] = names.map(lambda n: (index.get(n) or {}).get("url"))
-    out["source_sha256"] = names.map(lambda n: (index.get(n) or {}).get("sha256"))
-    out["retrieved_at"] = names.map(
-        lambda n: (index.get(n) or {}).get("fetched_at") or None)
+    existing_sha = (
+        out["source_sha256"].map(_blank) if "source_sha256" in out.columns
+        else pd.Series(None, index=out.index)
+    )
 
-    # Documents pulled from the archive in an earlier sweep may predate the
-    # manifest. Hashing them on disk keeps every row verifiable even when the
-    # URL that produced it is no longer recorded.
-    missing = out["source_sha256"].isna() & names.ne("")
-    if missing.any():
+    resolved: dict[str, dict] = {}
+    for name in names.unique():
+        if not name:
+            resolved[name] = {}
+            continue
+        named = by_name.get(name) or {}
+        alias = known.get(name) or {}
+        digest = _blank(named.get("sha256")) or _blank(
+            existing_sha[names.eq(name)].dropna().iloc[0]
+            if existing_sha[names.eq(name)].notna().any() else None
+        )
+        mtime = None
+        if not digest:
+            digest, mtime = _disk_digest(name)
+        hashed = by_hash.get(digest) if digest else None
+        hashed = hashed or {}
+        url = (_blank(named.get("url")) or _blank(hashed.get("url"))
+               or _blank(alias.get("url")))
+        page = (_blank(named.get("page_url")) or _blank(hashed.get("page_url"))
+                or _blank(alias.get("page_url")) or page_url_from_file_url(url))
+        sha = digest or _blank(hashed.get("sha256"))
+        fetched = (_blank(named.get("fetched_at")) or _blank(hashed.get("fetched_at"))
+                   or mtime)
+        if sha and not fetched:
+            _, mtime = _disk_digest(name) if not mtime else (digest, mtime)
+            fetched = mtime
+        resolved[name] = {
+            "url": url, "page_url": page, "sha256": sha, "fetched_at": fetched,
+        }
+
+    previous_url = out["source_url"].copy()
+    previous_page = out["source_page_url"].copy()
+    previous_sha = out["source_sha256"].copy()
+    previous_when = out["retrieved_at"].copy()
+
+    out["source_url"] = names.map(lambda n: (resolved.get(n) or {}).get("url"))
+    out["source_page_url"] = names.map(lambda n: (resolved.get(n) or {}).get("page_url"))
+    out["source_sha256"] = names.map(lambda n: (resolved.get(n) or {}).get("sha256"))
+    out["retrieved_at"] = names.map(lambda n: (resolved.get(n) or {}).get("fetched_at"))
+    out["source_url"] = out["source_url"].fillna(previous_url)
+    out["source_page_url"] = out["source_page_url"].fillna(previous_page)
+    out["source_sha256"] = out["source_sha256"].fillna(previous_sha)
+    out["retrieved_at"] = out["retrieved_at"].fillna(previous_when)
+
+    still_missing = out["source_sha256"].isna() & names.ne("")
+    if still_missing.any():
         cache: dict[str, tuple[str | None, str | None]] = {}
-        for name in names[missing].unique():
-            path = next(iter(glob.glob(os.path.join("data", "raw", "*", name))), None)
-            if not path:
-                cache[name] = (None, None)
-                continue
-            with open(path, "rb") as fh:
-                digest = hashlib.sha256(fh.read()).hexdigest()
-            stamp = dt.datetime.fromtimestamp(os.path.getmtime(path)).isoformat(
-                timespec="seconds")
-            cache[name] = (digest, stamp)
-        out.loc[missing, "source_sha256"] = names[missing].map(lambda n: cache[n][0])
-        out.loc[missing, "retrieved_at"] = names[missing].map(lambda n: cache[n][1])
+        for name in names[still_missing].unique():
+            cache[name] = _disk_digest(name)
+        out.loc[still_missing, "source_sha256"] = names[still_missing].map(
+            lambda n: cache[n][0])
+        empty_when = out["retrieved_at"].isna() & still_missing
+        out.loc[empty_when, "retrieved_at"] = names[empty_when].map(
+            lambda n: cache[n][1])
     return out
+
+
+def _provenance_ok(url, page) -> bool:
+    def present(value) -> bool:
+        if value is None:
+            return False
+        try:
+            if value != value:  # NaN
+                return False
+        except Exception:
+            pass
+        text = str(value).strip()
+        return bool(text) and text.lower() not in ("nan", "none")
+    return present(url) or present(page)
+
+
+def refuse_unknown_provenance(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Drop rows with neither a file URL nor a source page. Unknown is a failure."""
+    if df is None or df.empty:
+        empty = df if df is not None else pd.DataFrame()
+        return empty, empty.copy()
+    url = df["source_url"] if "source_url" in df.columns else None
+    page = df["source_page_url"] if "source_page_url" in df.columns else None
+    if url is None and page is None:
+        return df.iloc[0:0].copy(), df.copy()
+    ok = [
+        _provenance_ok(
+            url.iloc[i] if url is not None else None,
+            page.iloc[i] if page is not None else None,
+        )
+        for i in range(len(df))
+    ]
+    mask = pd.Series(ok, index=df.index)
+    return df.loc[mask].reset_index(drop=True), df.loc[~mask].reset_index(drop=True)
 
 
 # --------------------------------------------------------------------------
@@ -565,7 +674,17 @@ def _weighted(g: pd.DataFrame) -> pd.Series:
         "max_price": g["price_per_ton"].max(),
         "n_line_items": len(g),
         "n_counties": g["county"].nunique(),
+        "tons_basis": _basis_mode(g["tons_basis"]) if "tons_basis" in g.columns else None,
     })
+
+
+def _basis_mode(series: pd.Series) -> str | None:
+    vals = [str(v) for v in series.dropna().unique() if str(v).strip() and str(v) != "nan"]
+    if not vals:
+        return None
+    if len(vals) == 1:
+        return vals[0]
+    return "mixed"
 
 
 def aggregate(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:

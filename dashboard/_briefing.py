@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import html
 import json
+import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -14,10 +15,27 @@ PA_VOLUME_NOTE = (
     "Pennsylvania tons are estimated requirements committed before the season, "
     "not purchased or delivered."
 )
+PA_TONS_BASIS_NOTE = (
+    "Pennsylvania FY2024 tons are the COSTARS packet's Cumulative Estimate column "
+    "(tons_basis=printed). FY2022, FY2023, FY2026 and FY2027 tons are from the "
+    "eMarketplace estimates attachment (tons_basis=committed_estimate). Those are "
+    "different documents. FY2025 has no published tons."
+)
 UNLIKE_SHARE_NOTE = (
     "Michigan and Pennsylvania are not combined into a share: those are unlike "
     "quantities. Pennsylvania is estimated lot requirements; Michigan is contracted "
     "drop-point awards."
+)
+MI_CAPTURE_NOTE = (
+    "Michigan prices are whichever change notice Wayback captured for that "
+    "contract, not a complete CN history. FY2025 comes from a mid-season "
+    "amendment with corrected pricing. Other seasons come from option-year "
+    "exercises that may predate any correction, so Michigan price accuracy "
+    "varies by year with crawl timing."
+)
+MI_CAPTURE_NOTE_SHORT = (
+    "FY2025 prices are post-amendment. FY2022–FY2024, FY2026 and FY2027 are "
+    "award-time figures that may predate later corrections."
 )
 
 STATE_VOLUME_MEASURE = {
@@ -37,10 +55,25 @@ def volume_label(df: pd.DataFrame) -> str:
         return "Contracted tons"
     return "Published tons"
 
-# Same window as scripts/refresh.py: daily in June–August, Mondays otherwise.
-PEAK_MONTHS = (6, 7, 8)
-STALE_PEAK = timedelta(days=3)
-STALE_OFFSEASON = timedelta(days=10)
+
+def pa_basis_note(df: pd.DataFrame) -> str | None:
+    """On-chart copy when a PA view mixes packet-printed tons with estimates."""
+    if df is None or df.empty or "state" not in df.columns:
+        return None
+    if "PA" not in set(df["state"].astype(str)):
+        return None
+    return PA_TONS_BASIS_NOTE
+
+
+def document_label(name: str) -> str:
+    try:
+        from salttracker.sources import snap_document_label
+        return snap_document_label(name)
+    except ImportError:
+        return str(name or "")
+
+# Same window as the weekly Action: a missed Monday is an outage after 10 days.
+STALE_AFTER = timedelta(days=10)
 
 # Detector kinds shown on the watch strip. Failures are included so a
 # zero-row parse or empty DTMB listing cannot read as a quiet week.
@@ -87,6 +120,50 @@ def parse_ts(value: str | None) -> datetime | None:
         return None
 
 
+def git_head(root: str | Path | None = None) -> str | None:
+    try:
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(root) if root else None,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return None
+
+
+def change_report_href(watch: dict, root: str | Path | None = None) -> str | None:
+    path = watch.get("change_report_path") or "data/output/CHANGE_REPORT.txt"
+    try:
+        remote = subprocess.check_output(
+            ["git", "config", "--get", "remote.origin.url"],
+            cwd=str(root) if root else None,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        remote = ""
+    repo = None
+    if remote.endswith(".git"):
+        remote = remote[:-4]
+    if "github.com" in remote:
+        repo = remote.split("github.com")[-1].lstrip(":/")
+    if repo:
+        return f"https://github.com/{repo}/blob/main/{path}"
+    return path
+
+
+def revision_line(watch: dict, root: str | Path | None = None) -> str:
+    sha = watch.get("data_commit") or git_head(root)
+    href = change_report_href(watch, root)
+    bits = []
+    if sha:
+        bits.append(f"Data commit {sha[:7]}")
+    if href:
+        bits.append(f"Change report {href}")
+    return " · ".join(bits)
+
+
 def alerts_for_run(alerts: list[dict], last_run: str | None) -> list[dict]:
     """Only the refresh that last_run names. Older jsonl lines stay in the file."""
     if not last_run:
@@ -130,8 +207,8 @@ def format_checked(when: datetime) -> str:
 
 
 def stale_after(when: datetime) -> timedelta:
-    """Peak season is a daily scrape; 10 days of silence there is an outage."""
-    return STALE_PEAK if when.month in PEAK_MONTHS else STALE_OFFSEASON
+    """Weekly cadence: 10 days of silence is an outage, peak season or not."""
+    return STALE_AFTER
 
 
 def watch_strip(
@@ -152,6 +229,7 @@ def watch_strip(
             "tone": "missing",
             "headline": "No refresh recorded.",
             "checked": "The scraper has not written a last-checked time.",
+            "revision": revision_line(watch),
             "phrases": [],
         }
 
@@ -176,6 +254,7 @@ def watch_strip(
             "tone": "failed",
             "headline": headline,
             "checked": f"Last checked {checked_label}.",
+            "revision": revision_line(watch),
             "phrases": phrases,
         }
 
@@ -196,10 +275,16 @@ def watch_strip(
         checked_line = f"Last checked {checked_label}."
         tone = "news" if phrases else "quiet"
 
+    if watch.get("auto_updated_unreviewed") and tone not in ("failed",):
+        headline = "Auto-updated, not yet reviewed. " + headline
+        if tone != "stale":
+            tone = "unreviewed"
+
     return {
         "tone": tone,
         "headline": headline,
         "checked": checked_line,
+        "revision": revision_line(watch),
         "phrases": phrases,
     }
 
@@ -294,11 +379,19 @@ def coverage_grid(vendor_df: pd.DataFrame, state_code: str) -> dict:
     }
 
 
+def _first_url(series: pd.Series) -> str | None:
+    for value in series.dropna():
+        text = str(value).strip()
+        if text and text.lower() not in ("nan", "none"):
+            return text
+    return None
+
+
 def source_documents(raw: pd.DataFrame) -> pd.DataFrame:
     """One row per source PDF/xlsx used in the current filter."""
     cols = [
-        "state", "source_doc", "fiscal_year_from", "fiscal_year_to",
-        "suppliers", "source_url",
+        "state", "source_doc", "source_label", "fiscal_year_from", "fiscal_year_to",
+        "suppliers", "source_url", "source_page_url",
     ]
     if raw.empty or "source_doc" not in raw.columns:
         return pd.DataFrame(columns=cols)
@@ -316,19 +409,18 @@ def source_documents(raw: pd.DataFrame) -> pd.DataFrame:
                 str(v) for v in grp["vendor"].dropna()
                 if str(v) not in ("", "Unattributed", "nan")
             })
-        url = None
-        if "source_url" in grp.columns:
-            for u in grp["source_url"].dropna():
-                if str(u).strip():
-                    url = str(u)
-                    break
+        url = _first_url(grp["source_url"]) if "source_url" in grp.columns else None
+        page = (_first_url(grp["source_page_url"])
+                if "source_page_url" in grp.columns else None)
         rows.append({
             "state": states[0] if len(states) == 1 else ", ".join(states),
             "source_doc": str(name),
+            "source_label": document_label(str(name)),
             "fiscal_year_from": int(fys.min()) if len(fys) else None,
             "fiscal_year_to": int(fys.max()) if len(fys) else None,
             "suppliers": ", ".join(vendors),
             "source_url": url,
+            "source_page_url": page,
         })
     return pd.DataFrame(rows, columns=cols).sort_values(
         ["state", "fiscal_year_from", "source_doc"],

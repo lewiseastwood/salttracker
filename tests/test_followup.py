@@ -88,16 +88,19 @@ def test_draft_only_does_not_send(tmp_path, monkeypatch):
     drafts = list((tmp_path / "drafts").glob("*.eml"))
     names = [p.name for p in drafts]
     assert any(n.endswith("_dgs.eml") for n in names)
-    assert not any("washington" in n for n in names)
+    assert any("washington" in n for n in names)
     assert len([n for n in names if n.endswith("_dgs.eml")]) == 1
-    assert len(drafts) == 5  # four counties + DGS
+    assert len(drafts) == 6  # five counties + DGS
     xlsx = tmp_path / "PA_procurement_contacts.xlsx"
     assert xlsx.exists()
     county_path = next(p for p in drafts if "allegheny" in p.name)
     county = BytesParser(policy=email_policy).parsebytes(county_path.read_bytes()).get_content()
     assert "Right-to-Know" in county
-    assert "6100065611" in county
+    assert "FY2022" in county
+    assert "FY2025" in county
     assert "FY2027" in county
+    assert "6100065611" in county
+    assert "6100053321" in county
     assert SENDER_ADDRESS in county
     assert SENDER_REPLY in county
     assert "academic research" not in county.lower()
@@ -105,7 +108,11 @@ def test_draft_only_does_not_send(tmp_path, monkeypatch):
     assert "current or most recently awarded" not in county.lower()
     assert "tons committed" in county
     assert "tons actually received" in county
-    assert "off-contract" in county.lower() or "not made under that COSTARS contract" in county
+    assert "off-contract" in county.lower() or "not made under COSTARS" in county
+    wash = next(p for p in drafts if "washington" in p.name)
+    wash_body = BytesParser(policy=email_policy).parsebytes(wash.read_bytes()).get_content()
+    assert "FILE BY MAIL" in wash_body
+    assert "do not email" in wash_body.lower()
 
 
 def test_dgs_draft_goes_to_aoro_not_commodity_specialist(tmp_path, monkeypatch):
@@ -123,6 +130,10 @@ def test_dgs_draft_goes_to_aoro_not_commodity_specialist(tmp_path, monkeypatch):
     assert "Cheryl Spackman" in body
     assert "weekly" in body.lower()
     assert "6100065611" in body
+    assert "6100053321" in body
+    assert "FY2022" in body
+    assert "FY2025" in body
+    assert "67 counties" in body
     assert "awarded tons" in body.lower()
     assert "tons shipped" in body.lower()
     assert "without supplier attribution" in body.lower()
@@ -262,7 +273,31 @@ def test_clock_does_not_write_drafts_or_need_sender(tmp_path, monkeypatch, capsy
     assert "No overdue rows." in out
 
 
-def test_poll_inbox_flag_is_gone():
+def test_notify_letters_sent_is_noop_without_channel(tmp_path, monkeypatch):
+    monkeypatch.setattr(followup, "OUT", tmp_path)
+    monkeypatch.delenv("SALTTRACKER_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SALTTRACKER_ALERT_EMAIL", raising=False)
+    monkeypatch.delenv("SALTTRACKER_SMTP_HOST", raising=False)
+    notes = followup.notify_letters_sent(["sent DGS -> DGS-RTK@pa.gov"])
+    assert notes == []
+    assert not (tmp_path / "notified.json").is_file()
+
+
+def test_notify_new_responses_is_noop_without_channel(tmp_path, monkeypatch):
+    monkeypatch.setattr(followup, "OUT", tmp_path)
+    monkeypatch.delenv("SALTTRACKER_WEBHOOK_URL", raising=False)
+    monkeypatch.delenv("SALTTRACKER_ALERT_EMAIL", raising=False)
+    monkeypatch.delenv("SALTTRACKER_SMTP_HOST", raising=False)
+    ping = followup.notify_new_responses(
+        [{"county": "DGS", "received_on": "2026-08-01", "responded_on": "2026-08-05"}],
+        dt.date(2026, 9, 10),
+    )
+    assert ping == []
+    second = followup.notify_new_responses(
+        [{"county": "DGS", "received_on": "2026-08-01", "responded_on": "2026-08-05"}],
+        dt.date(2026, 9, 10),
+    )
+    assert second == []
     try:
         followup.main(["--poll-inbox"])
         assert False, "expected argparse to reject --poll-inbox"

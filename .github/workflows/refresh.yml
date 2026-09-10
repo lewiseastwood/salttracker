@@ -1,32 +1,27 @@
-# Unattended scrape. GitHub cron is UTC. 07:15 Eastern in June–August is EDT
-# (UTC-4), so 07:15 ET = 11:15 UTC. Cadence is two cron month fields, not a
-# date guard that starts the job and skips the crawl.
+# Weekly detect-and-propose. Does not push to main.
+#
+# Routine PRs auto-merge so Streamlit and the HTML pack on main update.
+# Needs-review PRs wait. There is no git push to origin/main.
 #
 # GitHub does not fire a new scheduled workflow until it has run once — use
 # "Run workflow" (workflow_dispatch) after the first push.
-#
-# Optional repository secrets (scrape works without them):
-#   SALTTRACKER_CONTACT       mailbox; otherwise the public repo URL is used
-#   SALTTRACKER_WEBHOOK_URL  Slack/Teams/generic POST for new-season alerts
-#   SALTTRACKER_ALERT_EMAIL   optional, requires the SMTP_* secrets below
-#   SALTTRACKER_SMTP_HOST / SALTTRACKER_SMTP_USER / SALTTRACKER_SMTP_PASS
-name: Refresh salt contracts
+name: Weekly salt refresh
 
 on:
   schedule:
-    - cron: "15 11 * 6,7,8 *"
-    - cron: "15 11 * 1,2,3,4,5,9,10,11,12 1"
+    - cron: "15 11 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: write
+  pull-requests: write
 
 concurrency:
   group: refresh
   cancel-in-progress: false
 
 jobs:
-  refresh:
+  propose:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -42,39 +37,32 @@ jobs:
       - name: Cache downloaded contract files
         uses: actions/cache@v4
         with:
-          path: data/raw
-          key: salt-raw-${{ runner.os }}-v1
+          path: |
+            data/raw
+          key: salt-raw-${{ runner.os }}-v2
 
-      - name: Refresh
-        id: refresh
+      - name: Propose
         env:
           SALTTRACKER_CONTACT: ${{ secrets.SALTTRACKER_CONTACT }}
-          SALTTRACKER_WEBHOOK_URL: ${{ secrets.SALTTRACKER_WEBHOOK_URL }}
-          SALTTRACKER_ALERT_EMAIL: ${{ secrets.SALTTRACKER_ALERT_EMAIL }}
-          SALTTRACKER_SMTP_HOST: ${{ secrets.SALTTRACKER_SMTP_HOST }}
-          SALTTRACKER_SMTP_USER: ${{ secrets.SALTTRACKER_SMTP_USER }}
-          SALTTRACKER_SMTP_PASS: ${{ secrets.SALTTRACKER_SMTP_PASS }}
+          SALTTRACKER_CLASSIFY_API_KEY: ${{ secrets.SALTTRACKER_CLASSIFY_API_KEY }}
+          SALTTRACKER_CLASSIFY_API_URL: ${{ secrets.SALTTRACKER_CLASSIFY_API_URL }}
+          SALTTRACKER_CLASSIFY_MODEL: ${{ secrets.SALTTRACKER_CLASSIFY_MODEL }}
           SALTTRACKER_RPS: "2"
-        run: |
-          extra=()
-          month=$(date -u +%m)
-          # Wayback is extra history, not cadence. Skip it off-season.
-          if [ "$month" != "06" ] && [ "$month" != "07" ] && [ "$month" != "08" ]; then
-            extra+=(--no-archive)
-          fi
-          python scripts/refresh.py "${extra[@]}"
+        run: python scripts/propose.py
 
-      - name: Build dashboard pack
-        # Rebuild even on a failed scrape so the HTML strip matches watch_state.
-        if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
-        continue-on-error: true
-        run: python scripts/build_exec_dashboard.py
-
-      # Commit on success and on failure. last_run always changes, so this is
-      # the 60-day keepalive. A red Monday with no push disables cron in 60 days.
-      - name: Persist outputs
-        if: always() && (steps.refresh.outcome == 'success' || steps.refresh.outcome == 'failure')
+      - name: Branch, commit, push
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "salttracker-bot"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          stamp=$(python3 -c "import json; print(json.load(open('data/staging/proposal.json'))['stamp'].replace(':','-'))")
+          branch="refresh/${stamp}"
+          git checkout -B "$branch"
           bash scripts/persist_refresh.sh
+          git push -u origin HEAD
+
+      - name: Open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/open_refresh_pr.sh

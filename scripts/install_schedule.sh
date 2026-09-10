@@ -16,9 +16,8 @@ fi
 
 if [[ "${1:-}" == "--status" ]]; then
   echo "Scheduler: GitHub Actions (.github/workflows/refresh.yml)"
-  echo "  daily 07:15 Eastern (11:15 UTC) in June–August"
-  echo "  Mondays 07:15 Eastern the rest of the year"
-  echo "  trigger: gh workflow run 'Refresh salt contracts'"
+  echo "  Mondays 07:15 Eastern (11:15 UTC)"
+  echo "  trigger: gh workflow run 'Weekly salt refresh'"
   if launchctl list 2>/dev/null | grep -qF "$LABEL"; then
     echo "Leftover LaunchAgent $LABEL is still loaded. Run: $0 --remove"
   fi
@@ -27,6 +26,6 @@ fi
 
 echo "Do not install a local LaunchAgent. The scraper runs on GitHub Actions." >&2
 echo "  workflow: .github/workflows/refresh.yml" >&2
-echo "  trigger:  gh workflow run 'Refresh salt contracts'" >&2
+echo "  trigger:  gh workflow run 'Weekly salt refresh'" >&2
 echo "To drop a leftover LaunchAgent: $0 --remove" >&2
 exit 1

@@ -1,0 +1,187 @@
+{
+  "version": 2,
+  "principle": "This tracker recognizes shapes it has seen, not meaning it has not. A new state or document type is unfamiliar until a person decides what the numbers are. A matching type name is not enough: the column set must match a recorded signature exactly.",
+  "interpretations": [
+    "Pennsylvania county lots are geography (the lot the salt is for), not buyers. Named COSTARS members are extra roster rows and are excluded from statewide totals.",
+    "Michigan snapYYYY-MM filenames are Wayback listing timestamps, not seasons. Fiscal year comes from printed schedule titles.",
+    "Pennsylvania FY2024 tons are the COSTARS packet Cumulative Estimate column (tons_basis=printed). FY2026 and FY2027 tons are the eMarketplace estimates attachment (tons_basis=committed_estimate). Those are different document types.",
+    "The FY2027 estimates attachment is a 9-column layout (COSTARS as a single Total Quantity). FY2026 split COSTARS into Initial Fill / Balance / Total. Same document_type, different columns — that is not routine.",
+    "Michigan 260000000712 / 260000000713 are not automatically the same series as 180000000768 / 180000000787. Renumbering is reported, never auto-linked."
+  ],
+  "types": [
+    {
+      "id": "mi_change_notice",
+      "document_type": "change_notice",
+      "state": "MI",
+      "tons_basis": "derived",
+      "volume_entity": "contracted drop-point awards (MDOT garages and named MiDEAL members)",
+      "required_fields": ["document_type", "tons_basis", "fiscal_year", "volume_entity", "effective_date", "expiration_date"],
+      "match": {
+        "filename_any": ["snap20", "180000000768", "180000000787", "180000000791", "260000000712", "260000000713"],
+        "url_any": ["michigan.gov", "MiDEAL-Media"],
+        "text_any": ["CONTRACT CHANGE NOTICE", "MiDEAL", "DROP POINT"]
+      },
+      "column_signatures": [
+        {
+          "id": "mi_mdot_drop_point",
+          "headers": ["Item", "MDOT Region", "County", "Agency Type", "Drop Point Name", "Drop Point Address", "Drop Point Phone Number", "Inside Delivery", "Delivery Hours", "Early Fill Up Tons", "Early Fill Low Price", "Early Fill Low Bidder", "Early Fill Extended Total Price", "Billing Address", "Billing Contact"],
+          "meanings": {
+            "Item": "row number on this schedule",
+            "MDOT Region": "MDOT region of the garage",
+            "County": "county of the drop point",
+            "Agency Type": "MDOT vs county garage vs other",
+            "Drop Point Name": "named delivery location",
+            "Drop Point Address": "street address for delivery",
+            "Early Fill Up Tons": "contracted tons for this program (early or seasonal after program-prefix strip)",
+            "Early Fill Low Price": "delivered $/short ton",
+            "Early Fill Low Bidder": "awarded supplier on this row",
+            "Early Fill Extended Total Price": "price × tons; used to derive tons when the tons glyph splits"
+          }
+        },
+        {
+          "id": "mi_mideal_early",
+          "headers": ["Region", "Item", "County", "Type", "Name", "Drop Point Address", "City", "State", "Zip", "Phone", "Early Delivery", "Early Fill Low Price", "Low Bidder", "Early Fill Extended Total Price", "Email"],
+          "meanings": {
+            "Name": "named MiDEAL / state-agency drop point",
+            "Early Delivery": "contracted early-fill tons on this layout",
+            "Early Fill Low Price": "delivered $/short ton",
+            "Low Bidder": "awarded supplier",
+            "Early Fill Extended Total Price": "price × tons"
+          }
+        },
+        {
+          "id": "mi_mideal_seasonal",
+          "headers": ["Region", "Item", "County", "Type", "Name", "Drop Point Address", "City", "State", "Zip", "Phone", "Seasonal Fill Low Tonnage", "Seasonal Fill Price", "Seasonal Fill Low Bidder", "Seasonal Extended Total Price", "Email"],
+          "meanings": {
+            "Name": "named MiDEAL / state-agency drop point",
+            "Seasonal Fill Low Tonnage": "contracted seasonal tons",
+            "Seasonal Fill Price": "delivered $/short ton",
+            "Seasonal Fill Low Bidder": "awarded supplier",
+            "Seasonal Extended Total Price": "price × tons"
+          }
+        },
+        {
+          "id": "mi_mideal_seasonal_tonnage",
+          "headers": ["Region", "Item", "County", "Type", "Name", "Drop Point Address", "City", "State", "Zip", "Phone", "Tonnage", "Low Price", "Low Bidder", "Extended Total Price", "Email"],
+          "meanings": {
+            "Name": "named MiDEAL / state-agency drop point",
+            "Tonnage": "contracted seasonal tons (Compass schedule wording; same meaning as Seasonal Fill Low Tonnage)",
+            "Low Price": "delivered $/short ton",
+            "Low Bidder": "awarded supplier",
+            "Extended Total Price": "price × tons"
+          }
+        },
+        {
+          "id": "mi_mideal_seasonal_tonnage_ocr",
+          "headers": ["Region", "Item", "County", "Type", "Name", "Drop Point Address", "City", "State", "Zip", "Phone", "Tonnage", "Low Price2", "Low Bidder", "Extended Total Price", "Email"],
+          "meanings": {
+            "Name": "named MiDEAL / state-agency drop point",
+            "Tonnage": "contracted seasonal tons",
+            "Low Price2": "delivered $/short ton (pdfplumber split of Low Price on some Compass notices)",
+            "Low Bidder": "awarded supplier",
+            "Extended Total Price": "price × tons"
+          }
+        }
+      ],
+      "notes": "Cumulative stack of change notices. Capture date is not the season. Option-year prices may predate a later mid-season amendment."
+    },
+    {
+      "id": "pa_estimates_attachment",
+      "document_type": "estimates_attachment",
+      "state": "PA",
+      "tons_basis": "committed_estimate",
+      "volume_entity": "county-lot estimated requirements committed before the season (geography, not buyers)",
+      "required_fields": ["document_type", "tons_basis", "fiscal_year", "volume_entity"],
+      "match": {
+        "filename_any": ["estimates", "estimate"],
+        "url_any": ["emarketplace.state.pa.us"],
+        "text_any": ["Estimated Requirements", "PennDOT", "COSTARS", "Attachment A"]
+      },
+      "column_signatures": [
+        {
+          "id": "pa_estimates_fy2027_nine_col",
+          "headers": ["District", "Lot #", "County", "Cumulative", "PENNDOT Initial Fill", "PENNDOT Balance of Season Winter Fill", "PENNDOT Total Quantity", "COSTARS Total Quantity", "Non-PENNDOT State Agencies Total Quantity"],
+          "meanings": {
+            "County": "lot geography, not the buyer",
+            "Cumulative": "estimated requirements for the lot (PennDOT + COSTARS + agency)",
+            "PENNDOT Initial Fill": "PennDOT early-fill portion of the lot estimate",
+            "PENNDOT Balance of Season Winter Fill": "PennDOT balance-of-season portion",
+            "PENNDOT Total Quantity": "PennDOT total (initial + balance)",
+            "COSTARS Total Quantity": "COSTARS members' combined estimate — not split into initial/balance on this layout",
+            "Non-PENNDOT State Agencies Total Quantity": "non-PennDOT agency portion"
+          }
+        }
+      ],
+      "notes": "The FY2027 nine-column layout is the only estimates signature treated as known. FY2026's extra COSTARS Initial/Balance columns are a different set and must not auto-merge. Not purchased or delivered volume."
+    },
+    {
+      "id": "pa_costars_packet",
+      "document_type": "costars_packet",
+      "state": "PA",
+      "tons_basis": "printed",
+      "volume_entity": "county-lot Cumulative Estimate column when present (geography, not buyers); otherwise price only",
+      "required_fields": ["document_type", "tons_basis", "fiscal_year", "volume_entity"],
+      "match": {
+        "filename_any": ["COSTARS", "sodium_chloride", "season_contract", "season-contract"],
+        "url_any": ["costars", "sodium%20chloride", "sodium-chloride"],
+        "text_any": ["COSTARS", "Sodium Chloride", "County Bid Price"]
+      },
+      "column_signatures": [
+        {
+          "id": "pa_packet_award",
+          "headers": ["County", "Cumulative Estimate", "County Bid Price"],
+          "meanings": {
+            "County": "lot geography, not the buyer",
+            "Cumulative Estimate": "packet-printed lot estimate (FY2024 statewide tons came from this column)",
+            "County Bid Price": "awarded delivered $/short ton"
+          }
+        },
+        {
+          "id": "pa_packet_award_with_discount",
+          "headers": ["County", "Cumulative Estimate", "County Bid Price", "Initial Fill Discounted Price"],
+          "meanings": {
+            "County": "lot geography, not the buyer",
+            "Cumulative Estimate": "packet-printed lot estimate",
+            "County Bid Price": "awarded delivered $/short ton",
+            "Initial Fill Discounted Price": "optional COSTARS discounted early-fill price; not a tons column"
+          }
+        },
+        {
+          "id": "pa_packet_attachment_a",
+          "headers": ["County", "Current Pricing", "New Pricing"],
+          "meanings": {
+            "County": "lot geography",
+            "Current Pricing": "prior-season delivered $/ton",
+            "New Pricing": "this-season delivered $/ton — price only, no tons"
+          }
+        }
+      ],
+      "notes": "FY2024 is the only recent year whose statewide tons come from this packet. FY2026–27 volume is on the estimates attachment, not this packet."
+    },
+    {
+      "id": "pa_change_notice",
+      "document_type": "change_notice",
+      "state": "PA",
+      "tons_basis": null,
+      "volume_entity": "none — pricing by county; volume is not this document",
+      "required_fields": ["document_type", "fiscal_year", "volume_entity"],
+      "match": {
+        "filename_any": ["ChangeNotice", "Change_Notice"],
+        "url_any": ["ChangeNotice"],
+        "text_any": ["Change Notice", "County Bid Price"]
+      },
+      "column_signatures": [
+        {
+          "id": "pa_cn_attachment_a",
+          "headers": ["County", "Current Pricing", "New Pricing"],
+          "meanings": {
+            "County": "lot geography",
+            "Current Pricing": "prior-season delivered $/ton",
+            "New Pricing": "this-season delivered $/ton"
+          }
+        }
+      ],
+      "notes": "Attachment A carries prior-year county prices. Do not treat as a tons source."
+    }
+  ]
+}

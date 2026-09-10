@@ -48,6 +48,24 @@ def test_load_reports_html_body_as_failure(monkeypatch, tmp_path):
     assert "https://example.com/trap.pdf" in err
 
 
+def test_load_no_url_with_page_is_not_a_fetch_failure(tmp_path):
+    blob, err = downloads.load_source_bytes(
+        "alias.pdf", "PA", "", raw_dir=str(tmp_path),
+        page_url="https://example.com/solicitation",
+    )
+    assert blob is None
+    assert "no stable public file URL" in err
+    assert "https://example.com/solicitation" in err
+
+
+def test_load_neither_url_nor_page_is_provenance_unknown(tmp_path):
+    blob, err = downloads.load_source_bytes(
+        "mystery.pdf", "MI", "", raw_dir=str(tmp_path),
+    )
+    assert blob is None
+    assert err == "mystery.pdf: provenance unknown"
+
+
 def test_zip_keeps_failures_and_successful_files(monkeypatch, tmp_path):
     pa = tmp_path / "PA"
     pa.mkdir()
@@ -62,9 +80,17 @@ def test_zip_keeps_failures_and_successful_files(monkeypatch, tmp_path):
             {"source_doc": "ok.pdf", "state": "PA", "source_url": "https://example.com/ok.pdf"},
             {"source_doc": "miss.pdf", "state": "MI", "source_url": "https://example.com/miss.pdf"},
             {"source_doc": "none.pdf", "state": "PA", "source_url": ""},
+            {
+                "source_doc": "pageonly.pdf", "state": "PA", "source_url": "",
+                "source_page_url": "https://example.com/landing",
+            },
         ],
         raw_dir=str(tmp_path),
     )
     assert blob is not None
     assert any("https://example.com/miss.pdf" in f and "503" in f for f in failures)
-    assert any("none.pdf: no published URL" in f for f in failures)
+    assert any("none.pdf: provenance unknown" in f for f in failures)
+    assert any(
+        "pageonly.pdf: no stable public file URL; page https://example.com/landing" in f
+        for f in failures
+    )

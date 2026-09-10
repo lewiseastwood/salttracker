@@ -56,7 +56,7 @@ div[data-testid="stMetric"] [data-testid="stMetricValue"] { font-family: "Libre 
          padding: 10px 14px; margin-bottom: 16px; }
 .watch.news { border-left: 4px solid #1B3A4B; }
 .watch.quiet { border-left: 4px solid #D7DCE0; }
-.watch.stale, .watch.failed, .watch.missing { border-left: 4px solid #C45C26; }
+.watch.stale, .watch.failed, .watch.missing, .watch.unreviewed { border-left: 4px solid #C45C26; }
 .watch-line { color: #1A2332; font-size: 0.95rem; }
 .watch-meta { color: #5C6770; font-size: 0.82rem; white-space: nowrap; }
 .cov-wrap { margin-bottom: 12px; }
@@ -145,11 +145,12 @@ def supplier_table(df: pd.DataFrame) -> pd.DataFrame:
         "contract_value": "Contract value ($)",
         "volume_share": "Volume share",
         "n_counties": "Counties",
+        "tons_basis": "Tons basis",
     })
     cols = [c for c in [
         "State", "Fiscal year", "Season", "Supplier", tons_name,
         "Priced tons", "Weighted $/ton", "Unweighted $/ton",
-        "Contract value ($)", "Volume share", "Counties",
+        "Contract value ($)", "Volume share", "Counties", "Tons basis",
     ] if c in out.columns]
     return out[cols].sort_values(["State", "Fiscal year", "Supplier"])
 
@@ -168,10 +169,12 @@ def state_table(df: pd.DataFrame) -> pd.DataFrame:
         "simple_avg_price": "Unweighted $/ton",
         "contract_value": "Contract value ($)",
         "n_counties": "Counties",
+        "tons_basis": "Tons basis",
     })
     cols = [c for c in [
         "State", "Fiscal year", "Season", tons_name, "Priced tons",
         "Weighted $/ton", "Unweighted $/ton", "Contract value ($)", "Counties",
+        "Tons basis",
     ] if c in out.columns]
     return out[cols].sort_values(["State", "Fiscal year"])
 
@@ -207,6 +210,15 @@ st.markdown(
     </div>""",
     unsafe_allow_html=True,
 )
+sha = briefing.load_watch(WATCH_STATE).get("data_commit") or briefing.git_head(ROOT)
+href = briefing.change_report_href(watch, ROOT)
+if href and str(href).startswith("http"):
+    st.caption(f"Data commit `{sha or '—'}` · [Change report]({href})")
+else:
+    st.caption(
+        f"Data commit `{sha or '—'}` · Change report: "
+        f"`{href or 'data/output/CHANGE_REPORT.txt'}`"
+    )
 
 f1, f2, f3, f4, f5, f6 = st.columns([1.3, 1.5, 0.85, 0.85, 1.2, 1.6])
 with f1:
@@ -259,7 +271,7 @@ line_keep = [c for c in [
     "state", "fiscal_year", "vendor", "county", "program", "channel", "purchasing_entity",
     "contracted_tons", "penndot_tons", "costars_tons", "agency_tons",
     "price_per_ton", "extended_value", "record_type",
-    "source_doc", "source_page", "source_url",
+    "source_doc", "source_page", "source_url", "source_page_url", "tons_basis",
 ] if c in r.columns]
 line_items = r[line_keep].copy()
 if "state" in line_items.columns:
@@ -274,7 +286,8 @@ line_items = line_items.rename(columns={
     "price_per_ton": "Price $/ton",
     "extended_value": "Extended value ($)", "record_type": "Record type",
     "source_doc": "Source document", "source_page": "Page",
-    "source_url": "Source URL",
+    "source_url": "Source URL", "source_page_url": "Source page URL",
+    "tons_basis": "Tons basis",
 })
 catalog = briefing.source_documents(r)
 catalog_view = catalog.copy()
@@ -284,10 +297,12 @@ catalog_view["state"] = catalog_view["state"].map(
 catalog_view = catalog_view.rename(columns={
     "state": "State",
     "source_doc": "Source document",
+    "source_label": "Document",
     "fiscal_year_from": "FY from",
     "fiscal_year_to": "FY to",
     "suppliers": "Suppliers",
-    "source_url": "Published URL",
+    "source_url": "Published file URL",
+    "source_page_url": "Source page URL",
 })
 pack = excel_bytes(
     ("By supplier", by_supplier),
@@ -368,16 +383,22 @@ with st.expander("How to read this"):
         "Price is the volume-weighted average unless you switch the basis. "
         "FY2027 is the awarded upcoming winter, not delivered volume. "
         f"{briefing.PA_VOLUME_NOTE} "
+        f"{briefing.PA_TONS_BASIS_NOTE} "
         f"{briefing.UNLIKE_SHARE_NOTE} "
+        f"{briefing.MI_CAPTURE_NOTE} "
         "Pennsylvania FY2022–FY2023 have published county estimates but **no supplier award**, so those years have volume without a named price. "
         "Both states quote **delivered** $/short ton (not FOB); programs still differ, so the MI–PA price gap is real in the documents but not a like-for-like bid. "
         "Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years."
     )
 
+briefing_notes = []
 if "PA" in sel_states:
-    briefing_notes = [briefing.PA_VOLUME_NOTE]
-    if "MI" in sel_states:
+    briefing_notes.extend([briefing.PA_VOLUME_NOTE, briefing.PA_TONS_BASIS_NOTE])
+if "MI" in sel_states:
+    briefing_notes.append(briefing.MI_CAPTURE_NOTE_SHORT)
+    if "PA" in sel_states:
         briefing_notes.append(briefing.UNLIKE_SHARE_NOTE)
+if briefing_notes:
     st.caption(" ".join(briefing_notes))
 
 st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")
@@ -413,6 +434,8 @@ for i, code in enumerate(sel_states):
         notes = [f"{STATE_NAMES.get(code, code)}: {briefing.STATE_VOLUME_MEASURE[code]} in the **From/To fiscal-year range** (summed, not a share)."]
         if code == "PA":
             notes.append(briefing.PA_VOLUME_NOTE)
+        if code == "MI":
+            notes.append(briefing.MI_CAPTURE_NOTE_SHORT)
         st.caption(" ".join(notes))
 st.plotly_chart(charts.state_volume_bars(s), width="stretch")
 st.caption("Bars are the latest fiscal year in the From/To range, shown as tons — not a two-state share.")
@@ -436,6 +459,8 @@ with tab_compare:
             charts.volume_price_comparison(v[v["state"] == code], metric, grain),
             width="stretch",
         )
+        if code == "PA":
+            st.caption(briefing.PA_TONS_BASIS_NOTE)
     for code in sel_states:
         st.plotly_chart(charts.vendor_price(v, metric, code, grain), width="stretch")
         if code == "PA":
@@ -454,6 +479,8 @@ with tab_suppliers:
 
 with tab_vol:
     st.plotly_chart(charts.volume_timeseries(s, grain), width="stretch")
+    if "PA" in sel_states:
+        st.caption(briefing.PA_TONS_BASIS_NOTE)
     for code in sel_states:
         st.plotly_chart(charts.vendor_volume(v, code, grain), width="stretch")
 
@@ -480,8 +507,9 @@ with tab_table:
 
     st.subheader("Source contracts")
     st.caption(
-        "Each Download fetches the published file on this server (local disk after a scrape, "
-        "otherwise the state's URL) and returns the bytes. Failures are listed; they are not skipped."
+        "Each Fetch returns the published file (local disk after a scrape, otherwise "
+        "the file URL). An empty file URL is not a fetch failure: the list below "
+        "separates fetch failed, no direct file but a source page, and provenance unknown."
     )
     c_csv, c_zip = st.columns(2)
     c_csv.download_button(
@@ -507,38 +535,56 @@ with tab_table:
             "application/zip", width="stretch", key="tab_docs_zip",
         )
     if zip_fail:
-        st.error("These source URLs failed:\n" + "\n".join(f"- {e}" for e in zip_fail))
+        st.error("These sources could not be downloaded:\n" + "\n".join(f"- {e}" for e in zip_fail))
     st.dataframe(
         catalog_view,
         width="stretch", height=280, hide_index=True,
         column_config={
-            "Published URL": st.column_config.LinkColumn("Published URL", display_text="Open contract"),
+            "Published file URL": st.column_config.LinkColumn(
+                "Published file URL", display_text="Open file"),
+            "Source page URL": st.column_config.LinkColumn(
+                "Source page URL", display_text="Open page"),
         },
     )
     st.markdown("**Download each contract**")
     for i, row in catalog.iterrows():
         doc = str(row.get("source_doc") or f"contract_{i}")
-        url = row.get("source_url")
+        url = downloads.published_link(row.get("source_url"))
+        page = downloads.published_link(row.get("source_page_url"))
         left, mid, right = st.columns([5, 1.4, 1.6])
         left.write(doc)
         fetch_key = f"doc_fetch_{i}"
         data_key = f"doc_bytes_{i}"
-        if mid.button("Fetch", key=f"btn_{fetch_key}"):
-            blob, err = downloads.load_source_bytes(doc, row.get("state"), url)
-            st.session_state[data_key] = (blob, err, url)
+        if url:
+            if mid.button("Fetch", key=f"btn_{fetch_key}"):
+                blob, err = downloads.load_source_bytes(
+                    doc, row.get("state"), url, page_url=page,
+                )
+                st.session_state[data_key] = (blob, err, url)
+        elif page:
+            mid.link_button("Source page", page)
+        else:
+            mid.caption("Unknown")
         stored = st.session_state.get(data_key)
         if stored:
             blob, err, fetched_url = stored
             if err:
-                right.caption("Failed")
+                if "provenance unknown" in err:
+                    right.caption("Provenance unknown")
+                elif "no stable public file URL" in err:
+                    right.caption("No direct file")
+                else:
+                    right.caption("Fetch failed")
                 st.error(err)
             else:
                 right.download_button(
                     "Download", blob, file_name=os.path.basename(doc),
                     mime="application/octet-stream", key=f"dl_{i}",
                 )
-        elif pd.isna(url) or not str(url).strip():
-            right.caption("No URL")
+        elif not url and page:
+            right.caption("No direct file")
+        elif not url:
+            right.caption("Provenance unknown")
 
     st.subheader("By supplier")
     st.dataframe(
@@ -575,5 +621,7 @@ with tab_table:
             "Non-PennDOT agency tons": tons_fmt, "Price $/ton": money_fmt,
             "Extended value ($)": value_fmt,
             "Source URL": st.column_config.LinkColumn("Source URL", display_text="Open"),
+            "Source page URL": st.column_config.LinkColumn(
+                "Source page URL", display_text="Open page"),
         },
     )

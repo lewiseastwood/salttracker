@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Pennsylvania follow-up: contacts workbook and Right-to-Know drafts.
 
-County letters ask only for that county's own COSTARS line under contract
-6100065611 and any off-contract county buy — not municipal purchases. The DGS
-letter (the one worth sending) asks for supplier weekly shipment reports under
-the same contract.
+County letters ask that county's own COSTARS and off-contract salt purchases
+for FY2022–FY2027 — not municipal purchases. The DGS letter asks for supplier
+weekly shipment reports, missing award/price files (FY2022–FY2023), missing
+statewide estimates (FY2023 beyond the eight-county re-bid; FY2025 renewal),
+and monthly COSTARS sales summaries for those seasons.
 
 Default is draft-only. This script does not send mail unless you pass --send
 and set SALTTRACKER_FOLLOWUP_CONFIRM=YES. Drafts are refused if
@@ -17,6 +18,7 @@ import argparse
 import csv
 import datetime as dt
 import io
+import json
 import os
 import re
 import smtplib
@@ -38,22 +40,21 @@ CONTACTS = ROOT / "data" / "pa_followup" / "contacts.csv"
 OUT = ROOT / "data" / "output" / "pa_followup"
 DRAFTS = OUT / "drafts"
 
-CONTRACT_NO = "6100065611"
-CONTRACT_TERM = "1 August 2026 through 31 July 2027"
-SEASON = "2026–27 (FY2027)"
+CONTRACT_NO = "6100065611"  # current FY2027 COSTARS solicitation; earlier seasons named in the letters
+SEASONS = "FY2022 through FY2027 (winters 2021–22 through 2026–27)"
 
 SUBJECT = (
-    f"Right-to-Know request: COSTARS sodium chloride contract {CONTRACT_NO}, {SEASON}"
+    f"Right-to-Know request: {SEASONS} COSTARS sodium chloride purchases"
 )
 
 COUNTY_BODY = """{greeting}
 
 I am requesting public records under Pennsylvania's Right-to-Know Law (65 P.S. § 67.101 et seq.).
 
-Please provide:
+Please provide, for {county} County only, for each of FY2022, FY2023, FY2024, FY2025, FY2026 and FY2027 (winter seasons 2021–22 through 2026–27):
 
-1. {county} County's own sodium chloride (bulk road salt) purchases under Commonwealth COSTARS contract {contract_no} for the {season} season (contract term {contract_term}): tons committed and tons actually received, and invoices or delivery records if held.
-2. Any separate sodium chloride / road-salt purchase by {county} County that was not made under that COSTARS contract.
+1. The county's own sodium chloride (bulk road salt) purchases under Commonwealth COSTARS: tons committed, tons actually received, unit prices paid, and invoices or delivery records if held. Known statewide solicitations in that span include 6100053321, 6100056192, 6100063746 and 6100065611; please include the same records for any other COSTARS sodium chloride contract the county used in those years, including the 2023–24 packet and the 2024–25 renewal.
+2. Any separate sodium chloride / road-salt purchase by {county} County that was not made under COSTARS, for the same years: tons, prices, and invoices if held.
 
 I am not seeking bid bonds, sealed proposals that remain unopened, records of municipalities or other COSTARS members, or any record that is not public. Electronic copies (PDF) are preferred.
 
@@ -69,16 +70,24 @@ Thank you for your time.
 """
 
 DGS_SUBJECT = (
-    f"Right-to-Know request: weekly salt shipment reports, contract {CONTRACT_NO}, {SEASON}"
+    f"Right-to-Know request: COSTARS sodium chloride records, {SEASONS}"
 )
 
 DGS_BODY = """{greeting}
 
 I am requesting public records under Pennsylvania's Right-to-Know Law (65 P.S. § 67.101 et seq.).
 
-Please provide the weekly shipment reports that awarded suppliers file with DGS under sodium chloride (bulk road salt) contract {contract_no} (solicitation {contract_no}) for the {season} season (contract term {contract_term}). I am asking for the reports by COSTARS member and by PennDOT / non-PennDOT agency, including awarded tons and tons shipped (and tons shipped to date, if that is how the reports are kept). Monthly COSTARS sales summaries for the same contract and period, if held separately from the weekly files, are also requested.
+Please provide the following public records for Commonwealth COSTARS sodium chloride (bulk road salt) for FY2022 through FY2027 (winter seasons 2021–22 through 2026–27). Known solicitations include 6100053321 (FY2022), 6100056192 (FY2023 re-bid), 6100063746 (FY2026) and 6100065611 (FY2027). Please include the 2023–24 COSTARS season contract and the 2024–25 renewal even if they were not posted under a new solicitation id.
 
-If per-supplier shipment volumes are withheld as confidential proprietary information, or if suppliers are given notice to object to release, I will accept as an alternative the same figures aggregated by COSTARS member and by agency without supplier attribution: tons awarded and tons shipped, by member and by agency, for this contract and period. I am requesting that narrower alternative now so a third-party notice process need not result in a full denial and a second request.
+1. Weekly shipment reports that awarded suppliers filed with DGS for those seasons, by COSTARS member and by PennDOT / non-PennDOT agency, including awarded tons and tons shipped (and tons shipped to date, if that is how the reports are kept). Monthly COSTARS sales summaries for the same seasons, if held separately from the weekly files.
+
+2. Award notices, county bid-price awards, and change notices that state the awarded supplier and delivered price by county for FY2022 and FY2023. Those award files are not in the public COSTARS packets this requester holds.
+
+3. Estimated requirements / county-lot tonnage for FY2025. The 2024–25 season was a renewal and no estimates attachment was published. If a statewide tonnage table exists in any form, please provide it.
+
+4. Any statewide estimated-requirements table for FY2023 covering all 67 counties. The public 2022–23 re-bid estimates file (6100056192) lists eight counties only.
+
+If per-supplier shipment volumes in item 1 are withheld as confidential proprietary information, or if suppliers are given notice to object to release, I will accept as an alternative the same figures aggregated by COSTARS member and by agency without supplier attribution: tons awarded and tons shipped, by member and by agency, for each of those seasons. I am requesting that narrower alternative now so a third-party notice process need not result in a full denial and a second request.
 
 I am not seeking bid bonds, sealed proposals that remain unopened, or any record that is not public. Electronic copies (Excel or PDF) are preferred. A completed DGS standard RTKL request form is attached.
 
@@ -110,7 +119,7 @@ DGS_FORM_URL = (
     "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/"
     "documents/press-office/rtkrequestform.pdf"
 )
-DGS_FORM_FILENAME = f"DGS_RTKL_request_{CONTRACT_NO}.pdf"
+DGS_FORM_FILENAME = "DGS_RTKL_request_COSTARS_salt_FY2022-FY2027.pdf"
 
 # Commonwealth administrative-office holidays. The named days come from
 # Governor's Office Administrative Circular 25-13 (Holidays — 2026),
@@ -370,9 +379,6 @@ def dgs_greeting() -> str:
 def dgs_letter_text(reply: str, address: str, name: str) -> str:
     return DGS_BODY.format(
         greeting=dgs_greeting(),
-        contract_no=CONTRACT_NO,
-        season=SEASON,
-        contract_term=CONTRACT_TERM,
         sender_name=name,
         sender_address=address,
         reply_to=reply,
@@ -382,21 +388,21 @@ def dgs_letter_text(reply: str, address: str, name: str) -> str:
 def dgs_records_requested() -> tuple[str, str]:
     """Primary and continuation text for the DGS standard RTKL form."""
     primary = (
-        f"Weekly shipment reports that awarded suppliers file with DGS under "
-        f"sodium chloride (bulk road salt) contract {CONTRACT_NO} (solicitation "
-        f"{CONTRACT_NO}) for the {SEASON} season (contract term {CONTRACT_TERM}). "
-        "By COSTARS member and by PennDOT / non-PennDOT agency, including awarded "
-        "tons and tons shipped (and tons shipped to date, if that is how the "
-        "reports are kept). Monthly COSTARS sales summaries for the same contract "
-        "and period, if held separately from the weekly files."
+        "COSTARS sodium chloride (bulk road salt) records for FY2022–FY2027 "
+        "(winters 2021–22 through 2026–27), including solicitations 6100053321, "
+        "6100056192, 6100063746, 6100065611, the 2023–24 packet, and the 2024–25 "
+        "renewal: (1) weekly supplier shipment reports and monthly COSTARS sales "
+        "summaries by COSTARS member and by PennDOT / non-PennDOT agency "
+        "(awarded tons and tons shipped); (2) FY2022 and FY2023 award notices / "
+        "county bid prices / change notices."
     )
     continuation = (
-        "Fallback: if per-supplier shipment volumes are withheld as confidential "
-        "proprietary information, or if suppliers are given notice to object, I "
-        "will accept aggregate tons awarded and tons shipped by COSTARS member "
-        "and by agency, without supplier attribution, for the same contract and "
-        "period. Electronic copies (Excel or PDF) preferred. Not seeking bid "
-        "bonds, sealed unopened proposals, or non-public records."
+        "(3) FY2025 estimated requirements / county-lot tonnage (renewal year; "
+        "none published). (4) FY2023 statewide estimates for all 67 counties "
+        "(public re-bid 6100056192 lists eight counties). Fallback for item 1: "
+        "aggregate tons awarded and shipped by member and by agency without "
+        "supplier attribution. Electronic copies preferred. Not bid bonds, "
+        "sealed unopened proposals, or non-public records."
     )
     return primary, continuation
 
@@ -578,12 +584,17 @@ def draft_message(row: dict, stamp: str) -> EmailMessage:
     _stamp_headers(msg, stamp)
     msg["X-SaltTracker-County"] = row["county"]
     msg["X-SaltTracker-AORO-Status"] = row.get("aoro_status") or ""
+    greeting = greeting_line(row)
+    if not dest:
+        mail_to = (row.get("aoro_address") or "").strip()
+        officer = (row.get("aoro_officer") or "Agency Open Records Officer").strip()
+        greeting = (
+            f"FILE BY MAIL — do not email. Mail to {officer}, {mail_to}.\n\n"
+            + greeting
+        )
     msg.set_content(COUNTY_BODY.format(
-        greeting=greeting_line(row),
+        greeting=greeting,
         county=row.get("county") or "the",
-        contract_no=CONTRACT_NO,
-        season=SEASON,
-        contract_term=CONTRACT_TERM,
         sender_name=name,
         sender_address=address,
         reply_to=reply,
@@ -635,11 +646,11 @@ def write_workbook(rows: list[dict], path: Path) -> None:
         ws.column_dimensions[col[0].column_letter].width = min(48, max(14, len(str(col[0].value or "")) + 4))
     note = wb.create_sheet("How to use")
     note["A1"] = (
-        "Pilot: five Pennsylvania counties. County letters ask only for that "
-        "county's own COSTARS line under 6100065611 (FY2027) and any off-contract "
-        "county buy — not municipal purchases. The DGS letter asks for weekly "
-        "shipment reports under the same contract and goes to the DGS AORO "
-        "(DGS-RTK@pa.gov), not the commodity specialist. "
+        "One letter per AORO. County letters ask that county's own COSTARS and "
+        "off-contract salt for FY2022–FY2027 — not municipal purchases. The DGS "
+        "letter asks for weekly shipment reports FY2022–FY2027, FY2022–FY2023 "
+        "award/price files, FY2025 estimates, and a full 67-county FY2023 "
+        "estimates table, and goes to DGS-RTK@pa.gov, not the commodity specialist. "
         "Drafts require SALTTRACKER_FOLLOWUP_REPLY_TO and "
         "SALTTRACKER_FOLLOWUP_ADDRESS. Washington AORO email is UNVERIFIED "
         "(mail the Chief Clerk — the DocuSign link is unconfirmed). "
@@ -663,8 +674,6 @@ def write_drafts(rows: list[dict], stamp: str) -> list[Path]:
     written = []
     for row in rows:
         if is_dgs_row(row):
-            continue
-        if not aoro_email(row):
             continue
         msg = draft_message(row, stamp)
         slug = row["county"].lower().replace(" ", "_")
@@ -706,6 +715,76 @@ def send_drafts(rows: list[dict], stamp: str) -> list[str]:
     return notes
 
 
+def _notified_path() -> Path:
+    return OUT / "notified.json"
+
+
+def _load_notified() -> dict:
+    path = _notified_path()
+    if not path.is_file():
+        return {"sent": [], "responded": []}
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {"sent": [], "responded": []}
+    data.setdefault("sent", [])
+    data.setdefault("responded", [])
+    return data
+
+
+def _save_notified(state: dict) -> None:
+    OUT.mkdir(parents=True, exist_ok=True)
+    _notified_path().write_text(json.dumps(state, indent=2))
+
+
+def _followup_ping(kind: str, text: str) -> list[str]:
+    src = ROOT / "src"
+    if str(src) not in sys.path:
+        sys.path.insert(0, str(src))
+    from salttracker.notify import followup_event
+    return followup_event(kind, text)
+
+
+def notify_letters_sent(notes: list[str]) -> list[str]:
+    """After a confirmed send: ping once per newly sent letter. No-op with no channel."""
+    sent = [n for n in notes if n.startswith("sent ")]
+    if not sent:
+        return []
+    state = _load_notified()
+    new = [n for n in sent if n not in state["sent"]]
+    if not new:
+        return []
+    ping = _followup_ping("sent", "RTK letters sent:\n" + "\n".join(new))
+    if ping and all("failed" not in n for n in ping):
+        state["sent"].extend(new)
+        _save_notified(state)
+    return ping
+
+
+def notify_new_responses(rows: list[dict], today: dt.date) -> list[str]:
+    """When --clock sees a new responded_on, ping once. Does not send government mail."""
+    state = _load_notified()
+    new = []
+    for row in rows:
+        info = clock_row(row, today)
+        if info["status"] != "responded":
+            continue
+        key = f"{info['label']}:{(row.get('responded_on') or '').strip()}"
+        if key in state["responded"]:
+            continue
+        new.append(key)
+    if not new:
+        return []
+    ping = _followup_ping(
+        "responded",
+        "Written RTK response recorded:\n" + "\n".join(new),
+    )
+    if ping and all("failed" not in n for n in ping):
+        state["responded"].extend(new)
+        _save_notified(state)
+    return ping
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--clock", action="store_true",
@@ -722,6 +801,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.clock:
         sys.stdout.write(format_clock_report(rows, dt.date.today()))
+        for line in notify_new_responses(rows, dt.date.today()):
+            print(line)
         return 0
 
     stamp = dt.datetime.now().replace(microsecond=0).isoformat()
@@ -740,7 +821,10 @@ def main(argv: list[str] | None = None) -> int:
         print(" ", p.name)
 
     if args.send:
-        for line in send_drafts(rows, stamp):
+        notes = send_drafts(rows, stamp)
+        for line in notes:
+            print(line)
+        for line in notify_letters_sent(notes):
             print(line)
     else:
         print("No mail sent (draft only). Pass --send only after reviewing the .eml files.")

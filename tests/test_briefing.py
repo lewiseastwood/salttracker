@@ -9,6 +9,7 @@ import pandas as pd
 import pytest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(ROOT, "src"))
 sys.path.insert(0, os.path.join(ROOT, "dashboard"))
 
 import _briefing as briefing  # noqa: E402
@@ -94,8 +95,16 @@ def test_strip_stale_keeps_quiet_headline_but_flags_age():
     assert "has not run in" in strip["checked"]
 
 
-def test_peak_season_stale_after_three_days():
+def test_peak_season_four_days_is_not_stale_on_weekly_cadence():
     now = datetime(2026, 7, 10, 8, 0, 0)
+    watch = {"last_run": "2026-07-06T07:15:00", "last_status": "ok"}
+    strip = briefing.watch_strip(watch, [], now=now)
+    assert strip["tone"] == "quiet"
+    assert "has not run" not in strip["checked"]
+
+
+def test_eleven_days_is_stale():
+    now = datetime(2026, 7, 20, 8, 0, 0)
     watch = {"last_run": "2026-07-06T07:15:00", "last_status": "ok"}
     strip = briefing.watch_strip(watch, [], now=now)
     assert strip["tone"] == "stale"
@@ -108,6 +117,29 @@ def test_offseason_four_days_is_not_stale():
     strip = briefing.watch_strip(watch, [], now=now)
     assert strip["tone"] == "quiet"
     assert "has not run" not in strip["checked"]
+
+
+def test_strip_flags_auto_updated_unreviewed():
+    watch = {
+        "last_run": "2026-09-09T07:15:00",
+        "last_status": "ok",
+        "auto_updated_unreviewed": True,
+    }
+    strip = briefing.watch_strip(watch, [], now=NOW)
+    assert strip["tone"] == "unreviewed"
+    assert strip["headline"].startswith("Auto-updated, not yet reviewed.")
+    assert "No new seasons" in strip["headline"]
+
+
+def test_strip_failed_wins_over_unreviewed():
+    watch = {
+        "last_run": "2026-09-09T07:15:00",
+        "last_status": "empty",
+        "auto_updated_unreviewed": True,
+    }
+    strip = briefing.watch_strip(watch, [], now=NOW)
+    assert strip["tone"] == "failed"
+    assert "Auto-updated" not in strip["headline"]
 
 
 def test_strip_missing_run_is_not_confirmation():
@@ -154,6 +186,19 @@ def test_source_documents_catalog_has_urls():
     fy27 = catalog[catalog["source_doc"] == "PA_FY2027_COSTARS_6100065611.pdf"].iloc[0]
     assert fy27["fiscal_year_from"] == 2027
     assert isinstance(fy27["source_url"], str) and fy27["source_url"].startswith("http")
+    estimates = catalog[catalog["source_doc"] == "PA_estimates_FY2027_6100065611.pdf"]
+    assert not estimates.empty
+    est = estimates.iloc[0]
+    assert isinstance(est["source_url"], str) and est["source_url"].startswith("http")
+    assert "6100065611" in str(est["source_url"])
+    assert "Solicitations.aspx?SID=6100065611" in str(est["source_page_url"])
+    fy24 = catalog[catalog["source_doc"] == "PA_FY2024_COSTARS.pdf"].iloc[0]
+    assert isinstance(fy24["source_url"], str) and fy24["source_url"].startswith("http")
+    assert "2023-2024" in fy24["source_url"]
+    cargill = catalog[catalog["source_doc"] == "791_snap2023-01.pdf"]
+    assert not cargill.empty
+    assert "CN3" in str(cargill.iloc[0]["source_label"])
+    assert "2021/2022" in str(cargill.iloc[0]["source_label"])
 
 
 def test_volume_label_depends_on_which_states_are_in_view():
@@ -162,3 +207,10 @@ def test_volume_label_depends_on_which_states_are_in_view():
     assert briefing.volume_label(pd.DataFrame({"state": ["MI", "PA"]})) == "Published tons"
     assert briefing.PA_VOLUME_NOTE.startswith("Pennsylvania tons are estimated")
     assert "unlike" in briefing.UNLIKE_SHARE_NOTE
+    assert "FY2024" in briefing.PA_TONS_BASIS_NOTE
+    assert "COSTARS packet" in briefing.PA_TONS_BASIS_NOTE
+    assert "FY2025" in briefing.MI_CAPTURE_NOTE
+    assert "mid-season amendment" in briefing.MI_CAPTURE_NOTE
+    assert "option-year" in briefing.MI_CAPTURE_NOTE
+    assert "post-amendment" in briefing.MI_CAPTURE_NOTE_SHORT
+    assert "award-time" in briefing.MI_CAPTURE_NOTE_SHORT

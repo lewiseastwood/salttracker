@@ -7,8 +7,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-from _theme import INK, LINE, NAVY, PAPER, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, WHITE, style
-from _briefing import STATE_VOLUME_MEASURE, volume_label
+from _theme import LINE, NAVY, PAPER, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, WHITE, style
+from _briefing import STATE_VOLUME_MEASURE, volume_label, pa_basis_note
 
 SHORT_VENDOR = {
     "Riverside Construction Materials": "Riverside",
@@ -57,6 +57,26 @@ def _with_period(df: pd.DataFrame, grain: str) -> pd.DataFrame:
                     item[col] = pd.NA
             rows.append(item)
     return pd.DataFrame(rows)
+
+
+def _basis_pattern(series) -> list[str]:
+    """Hatch packet-printed tons so they don't look like estimates-attachment tons."""
+    out = []
+    for value in series:
+        if str(value) == "printed":
+            out.append("/")
+        else:
+            out.append("")
+    return out
+
+
+def _volume_title(base: str, df: pd.DataFrame) -> str:
+    if pa_basis_note(df):
+        return (
+            f"{base}<br><sup>FY2024 hatched = COSTARS packet column; "
+            "solid = eMarketplace estimates attachment</sup>"
+        )
+    return base
 
 
 def _y_none(series) -> list:
@@ -260,6 +280,7 @@ def volume_price_comparison(
             go.Bar(
                 x=g["period"], y=tons,
                 marker_color=VENDOR_COLORS.get(vendor, "#4E79A7"),
+                marker_pattern_shape=_basis_pattern(g["tons_basis"]) if "tons_basis" in g.columns else None,
                 name=volume_label(vendor_df),
                 legendgroup="tons",
                 showlegend=i == 0,
@@ -310,7 +331,7 @@ def volume_price_comparison(
     if len(states) == 1:
         title += f" — {STATE_NAMES.get(states[0], states[0])}"
     fig.update_layout(
-        title=title,
+        title=_volume_title(title, vendor_df),
         bargap=0.35,
         hovermode="closest",
     )
@@ -329,11 +350,48 @@ def _latest(df: pd.DataFrame) -> pd.DataFrame:
     return df[df["fiscal_year"] == int(df["fiscal_year"].max())].copy()
 
 
-# Approximate state centroids for share labels (not used for the fill).
+# Inland points so the label sits on land, not on the Great Lakes.
 _STATE_LABEL_LONLAT = {
-    "MI": (-85.4, 44.3),
+    "MI": (-84.7, 43.5),
     "PA": (-77.8, 40.9),
 }
+_MAP_LABEL_FONT = "Helvetica Neue, Helvetica, Arial, sans-serif"
+# Outline offsets (degrees) so white type stays readable on land and water.
+_MAP_LABEL_HALO = (
+    (-0.06, 0), (0.06, 0), (0, -0.045), (0, 0.045),
+    (-0.05, 0.035), (0.05, 0.035), (-0.05, -0.035), (0.05, -0.035),
+)
+
+
+def _map_ton_label(tons: float) -> str:
+    if tons >= 1_000_000:
+        v = tons / 1_000_000
+        return f"{v:.2f}M t" if abs(v - round(v)) > 0.005 else f"{v:.0f}M t"
+    if tons >= 10_000:
+        return f"{tons / 1000:.0f}K t"
+    return f"{tons:,.0f} t"
+
+
+def _add_map_label(fig: go.Figure, state_code: str, name: str, tons: float) -> None:
+    """White type with a dark outline — INK on MI navy is the same color."""
+    lonlat = _STATE_LABEL_LONLAT.get(state_code)
+    if not lonlat:
+        return
+    lon, lat = lonlat
+    text = f"{name}<br>{_map_ton_label(tons)}"
+    halo = dict(size=14, color=NAVY, family=_MAP_LABEL_FONT)
+    face = dict(size=14, color=WHITE, family=_MAP_LABEL_FONT)
+    for dx, dy in _MAP_LABEL_HALO:
+        fig.add_trace(go.Scattergeo(
+            lon=[lon + dx], lat=[lat + dy],
+            text=[text], mode="text", textfont=halo,
+            hoverinfo="skip", showlegend=False,
+        ))
+    fig.add_trace(go.Scattergeo(
+        lon=[lon], lat=[lat],
+        text=[text], mode="text", textfont=face,
+        hoverinfo="skip", showlegend=False,
+    ))
 
 
 def _fy_span(df: pd.DataFrame) -> str:
@@ -379,20 +437,12 @@ def state_volume_map(state_df: pd.DataFrame, state_code: str) -> go.Figure:
             x=1.0,
         ),
         marker_line_color=WHITE,
-        marker_line_width=1.2,
+        marker_line_width=1.6,
         customdata=[[name, tons, measure]],
         hovertemplate="%{customdata[0]}<br>%{customdata[1]:,.0f} %{customdata[2]}<extra></extra>",
         name="",
     ))
-    lonlat = _STATE_LABEL_LONLAT.get(state_code)
-    if lonlat:
-        fig.add_trace(go.Scattergeo(
-            lon=[lonlat[0]], lat=[lonlat[1]],
-            text=[f"{name}<br>{tons:,.0f} t"],
-            mode="text",
-            textfont=dict(size=12, color=INK, family="Georgia, 'Times New Roman', serif"),
-            hoverinfo="skip", showlegend=False,
-        ))
+    _add_map_label(fig, state_code, name, tons)
     fig.update_geos(
         scope="usa",
         fitbounds="locations",
@@ -400,11 +450,11 @@ def state_volume_map(state_df: pd.DataFrame, state_code: str) -> go.Figure:
         showland=True,
         landcolor=PAPER,
         showlakes=True,
-        lakecolor=WHITE,
+        lakecolor="#E4EEF2",
         bgcolor=WHITE,
         showsubunits=True,
         subunitcolor=LINE,
-        subunitwidth=0.4,
+        subunitwidth=0.6,
         projection_type="albers usa",
     )
     fig.update_layout(title=title, margin=dict(l=16, r=72, t=64, b=24))
@@ -566,6 +616,7 @@ def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figur
         fig.add_trace(go.Bar(
             x=g["period"], y=_y_none(g["contracted_tons"]), name=STATE_NAMES.get(code, code),
             marker_color=STATE_COLORS.get(code, "#1B3A4B"),
+            marker_pattern_shape=_basis_pattern(g["tons_basis"]) if "tons_basis" in g.columns else None,
             hovertemplate="%{x}<br>%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
     tons = pd.to_numeric(state_df["contracted_tons"], errors="coerce")
@@ -573,7 +624,7 @@ def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figur
     fig.update_xaxes(**_period_xaxis(periods, grain))
     fig.update_layout(
         barmode="group",
-        title=f"{volume_label(state_df)} over time",
+        title=_volume_title(f"{volume_label(state_df)} over time", state_df),
     )
     fig = style(fig, height=480)
     fig.update_layout(
@@ -622,6 +673,7 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
         fig.add_trace(go.Bar(
             x=vg["period"], y=_y_none(vg["contracted_tons"]), name=_short(vendor),
             marker_color=VENDOR_COLORS.get(vendor, "#9AA3B2"),
+            marker_pattern_shape=_basis_pattern(vg["tons_basis"]) if "tons_basis" in vg.columns else None,
             hovertemplate="%{x}<br>%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
     tons = pd.to_numeric(g["contracted_tons"], errors="coerce") if not g.empty else pd.Series(dtype=float)
@@ -629,7 +681,9 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
     fig.update_xaxes(**_period_xaxis(periods, grain))
     fig.update_layout(
         barmode="stack",
-        title=f"{STATE_NAMES.get(state_code, state_code)} — volume by supplier",
+        title=_volume_title(
+            f"{STATE_NAMES.get(state_code, state_code)} — volume by supplier", vendor_df,
+        ),
     )
     fig = style(fig, height=500)
     fig.update_layout(

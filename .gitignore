@@ -9,11 +9,14 @@ __pycache__/
 .DS_Store
 data/logs/
 data/interim/parse_cache/
+data/staging/raw/
+data/staging/archive/
 data/raw/
 data/interim/mi_page.html
 data/interim/pa_cdx.json
 *.pdf
 !data/output/
+!data/archive/mi/*.pdf
 # Drafts, filled RTKL PDFs, and the follow-up workbook can contain a requester
 # home address. Ignore the whole follow-up output tree. *.eml anywhere.
 # These must come after !data/output/ so that rule cannot re-include them.

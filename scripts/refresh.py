@@ -4,10 +4,13 @@
     python scripts/refresh.py                # discover, download, parse, export
     python scripts/refresh.py --no-download  # rebuild from documents already on disk
     python scripts/refresh.py --no-archive   # skip the Wayback Machine sweep
+    python scripts/refresh.py --revert-last   # undo last routine auto-merge, rebuild
+    python scripts/refresh.py --mark-reviewed  # clear the auto-updated strip
 
-New contracts are published in the July-August window each year, so during that
-window GitHub Actions runs daily (see .github/workflows/refresh.yml). Documents
-are content-hashed, so re-running is cheap and only changed files are rewritten.
+New contracts are published in the July-August window each year. The scheduled
+path is weekly detect-and-propose (`scripts/propose.py`), not this script.
+Use this locally to scrape + parse + export without opening a PR.
+
 """
 from __future__ import annotations
 
@@ -276,7 +279,22 @@ def main() -> int:
     ap.add_argument("--no-archive", action="store_true", help="skip the Wayback Machine sweep")
     ap.add_argument("--no-scan", action="store_true",
                     help="skip the eMarketplace scan for newly posted PA solicitations")
+    ap.add_argument("--revert-last", action="store_true",
+                    help="revert the last routine auto-merge and rebuild the dashboard")
+    ap.add_argument("--mark-reviewed", action="store_true",
+                    help="clear the auto-updated, not yet reviewed strip")
     args = ap.parse_args()
+
+    if args.revert_last:
+        from salttracker.propose import revert_last_auto_merge
+        sha = revert_last_auto_merge(ROOT)
+        print(f"Reverted {sha}. Commit the revert (if git left one) and push main.")
+        return 0
+    if args.mark_reviewed:
+        from salttracker.propose import mark_reviewed
+        mark_reviewed(ROOT)
+        print("Cleared auto-updated flag in data/watch_state.json. Commit and push to update the dashboard strip.")
+        return 0
 
     month = dt.date.today().month
     if month in PEAK_MONTHS:

@@ -11,6 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(ROOT, "dashboard"))
 
 import _charts as charts  # noqa: E402
+from _theme import INK  # noqa: E402
 
 VENDOR_CSV = os.path.join(ROOT, "data", "output", "salt_contracts_by_vendor.csv")
 
@@ -161,3 +162,13 @@ def test_state_volume_map_is_tons_over_the_filtered_range_not_a_share():
     assert "estimated lot requirements" in str(pa.layout.title.text or "").lower()
     pa_choro = next(tr for tr in pa.data if tr.type == "choropleth")
     assert list(pa_choro.locations) == ["PA"]
+
+    labels = [tr for tr in fig.data if getattr(tr, "type", None) == "scattergeo"]
+    assert labels
+    face = labels[-1]
+    assert str(face.textfont.color).upper() == "#FFFFFF"
+    assert "Georgia" not in (face.textfont.family or "")
+    label = str(face.text[0])
+    assert "Michigan" in label
+    assert "M t" in label
+    assert INK not in [str(tr.textfont.color).upper() for tr in labels]

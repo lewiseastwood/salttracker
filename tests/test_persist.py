@@ -72,7 +72,8 @@ def test_persist_on_parse_failed_commits_watch_state(tmp_path):
         assert result.returncode == 0, result.stderr
 
         log = _git(repo, "log", "-1", "--format=%s").stdout.strip()
-        assert log.startswith("Refresh parse-failed")
+        assert log.startswith("Refresh")
+        assert "parse-failed" in log
         committed = json.loads(_git(repo, "show", "HEAD:data/watch_state.json").stdout)
         assert committed["last_status"] == "parse-failed"
         assert committed["last_run"] == "2026-10-06T07:15:00"
@@ -80,7 +81,26 @@ def test_persist_on_parse_failed_commits_watch_state(tmp_path):
         shutil.rmtree(repo, ignore_errors=True)
 
 
-def test_persist_refuses_a_no_op_that_would_starve_keepalive(tmp_path):
+def test_persist_force_adds_archived_michigan_pdf(tmp_path):
+    repo = _seed_repo(tmp_path)
+    try:
+        (repo / ".gitignore").write_text("*.pdf\n")
+        arch = repo / "data" / "archive" / "mi"
+        arch.mkdir(parents=True)
+        (arch / "abc123_180000000768.pdf").write_bytes(b"%PDF-prior")
+        (repo / "data" / "watch_state.json").write_text(json.dumps({
+            "last_run": "2026-10-06T07:15:00",
+            "last_status": "ok",
+        }))
+        result = subprocess.run(
+            ["bash", SCRIPT], cwd=repo, env=_git_env(),
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        listed = _git(repo, "ls-tree", "-r", "--name-only", "HEAD").stdout
+        assert "data/archive/mi/abc123_180000000768.pdf" in listed
+    finally:
+        shutil.rmtree(repo, ignore_errors=True)
     repo = _seed_repo(tmp_path)
     try:
         result = subprocess.run(

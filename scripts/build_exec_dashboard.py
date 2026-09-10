@@ -98,17 +98,28 @@ def main() -> None:
             "value": None if pd.isna(row["contract_value"]) else float(row["contract_value"]),
         })
     catalog = briefing.source_documents(raw) if not raw.empty else pd.DataFrame()
-    pa_note = htmlesc(briefing.PA_VOLUME_NOTE)
+    pa_note = htmlesc(briefing.PA_VOLUME_NOTE + " " + briefing.PA_TONS_BASIS_NOTE)
     unlike_note = htmlesc(briefing.UNLIKE_SHARE_NOTE)
+    mi_capture = htmlesc(briefing.MI_CAPTURE_NOTE)
+    mi_note = htmlesc(briefing.MI_CAPTURE_NOTE_SHORT)
+
+    def _cell_url(value) -> str:
+        if value is None or (isinstance(value, float) and pd.isna(value)):
+            return ""
+        text = str(value).strip()
+        return "" if not text or text.lower() in ("nan", "none") else text
+
     doc_rows = []
     for _, row in catalog.iterrows():
         doc_rows.append({
             "state": STATE_NAMES.get(row["state"], row["state"]),
-            "doc": row["source_doc"],
+            "doc": row.get("source_label") or row["source_doc"],
+            "filename": row["source_doc"],
             "fy_from": None if pd.isna(row["fiscal_year_from"]) else int(row["fiscal_year_from"]),
             "fy_to": None if pd.isna(row["fiscal_year_to"]) else int(row["fiscal_year_to"]),
             "suppliers": row["suppliers"] or "",
-            "url": row["source_url"] or "",
+            "url": _cell_url(row.get("source_url")),
+            "page_url": _cell_url(row.get("source_page_url")),
         })
 
     html = f"""<!DOCTYPE html>
@@ -155,7 +166,7 @@ def main() -> None:
            padding:10px 14px; margin-bottom:16px; }}
   .watch.news {{ border-left:4px solid var(--navy); }}
   .watch.quiet {{ border-left:4px solid var(--line); }}
-  .watch.stale, .watch.failed, .watch.missing {{ border-left:4px solid #C45C26; }}
+  .watch.stale, .watch.failed, .watch.missing, .watch.unreviewed {{ border-left:4px solid #C45C26; }}
   .watch-line {{ font-size:0.95rem; }}
   .watch-meta {{ color:var(--muted); font-size:0.82rem; }}
   .cov-panel {{ background:#fff; border:1px solid var(--line); border-radius:8px; padding:10px 14px; margin:0 0 16px; }}
@@ -201,10 +212,12 @@ def main() -> None:
   <div class="watch {watch['tone']}">
     <div class="watch-line">{htmlesc(watch['headline'])}</div>
     <div class="watch-meta">{htmlesc(watch['checked'])}</div>
+    <div class="watch-meta">{htmlesc(watch.get('revision') or '')}</div>
   </div>
 
-  <p class="note" data-panel="all">{pa_note} {unlike_note}</p>
+  <p class="note" data-panel="all">{pa_note} {unlike_note} {mi_note}</p>
   <p class="note" data-panel="PA">{pa_note}</p>
+  <p class="note" data-panel="MI">{mi_note}</p>
 
   <div class="card wide" data-panel="all" data-grain="annual">{plots['price_ts_all_annual']}</div>
   <div class="card wide" data-panel="all" data-grain="quarter">{plots['price_ts_all_quarter']}</div>
@@ -247,7 +260,7 @@ def main() -> None:
   <div class="card wide" data-panel="all">{plots['volbars_all']}</div>
   <p class="note" data-panel="all">{unlike_note} Each map is that state's own tons in the years shown — not a two-state share.</p>
   <p class="note" data-panel="PA">{pa_note}</p>
-  <p class="note" data-panel="MI">Michigan tons are contracted drop-point awards (MDOT garages and named MiDEAL members).</p>
+  <p class="note" data-panel="MI">Michigan tons are contracted drop-point awards (MDOT garages and named MiDEAL members). {mi_note}</p>
   <div class="grid3">
     <div class="card" data-panel="all">{plots['bubbles_MI']}</div>
     <div class="card" data-panel="all">{plots['bars_MI']}</div>
@@ -278,10 +291,11 @@ def main() -> None:
     <div class="card" data-panel="PA" data-grain="quarter">{plots['price_PA_quarter']}</div>
     <div class="card" data-panel="PA" data-grain="annual">{plots['vol_PA_annual']}</div>
     <div class="card" data-panel="PA" data-grain="quarter">{plots['vol_PA_quarter']}</div>
+    <p class="note" data-panel="PA">{pa_note}</p>
   </div>
 
   <h2>Source contracts</h2>
-  <p class="note" style="margin-top:0">Published PDFs behind the tables. Open contract follows the state's URL. File downloads that fetch bytes live on the Streamlit app (Tables &amp; export), which reports any URL that fails.</p>
+  <p class="note" style="margin-top:0">Published PDFs behind the tables. Open file follows a direct URL. Open source page is the landing page when the file itself is not stably linkable. Provenance unknown means neither was recorded — that is not a fetch failure.</p>
   <div class="exports">
     <button type="button" onclick="downloadCsv('docs')">Download contract list (CSV)</button>
   </div>
@@ -311,7 +325,7 @@ def main() -> None:
     <tbody></tbody>
   </table>
   </div>
-  <p class="note">{pa_note} {unlike_note} CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years.</p>
+  <p class="note">{pa_note} {unlike_note} {mi_capture} CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years.</p>
 </div>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
@@ -369,7 +383,9 @@ function paint() {{
   }});
   tbodyD.innerHTML = "";
   visible(docRows).forEach(r => {{
-    const link = r.url ? `<a href="${{r.url}}" target="_blank" rel="noopener">Open contract</a>` : "—";
+    let link = "Provenance unknown";
+    if (r.url) link = `<a href="${{r.url}}" target="_blank" rel="noopener">Open file</a>`;
+    else if (r.page_url) link = `<a href="${{r.page_url}}" target="_blank" rel="noopener">Open source page</a>`;
     const tr = document.createElement("tr");
     tr.innerHTML = `<td>${{r.state}}</td><td>${{r.doc}}</td><td>${{r.fy_from || "—"}}</td><td>${{r.fy_to || "—"}}</td><td>${{r.suppliers || "—"}}</td><td>${{link}}</td>`;
     tbodyD.appendChild(tr);
@@ -396,9 +412,9 @@ function downloadCsv(kind) {{
     return;
   }}
   if (kind === "docs") {{
-    const header = ["State","Source document","FY from","FY to","Suppliers","Published URL"];
+    const header = ["State","Document","Filename","FY from","FY to","Suppliers","Published file URL","Source page URL"];
     const lines = [header.join(",")].concat(visible(docRows).map(r =>
-      [r.state, r.doc, r.fy_from, r.fy_to, r.suppliers, r.url].map(csvEscape).join(",")));
+      [r.state, r.doc, r.filename || r.doc, r.fy_from, r.fy_to, r.suppliers, r.url, r.page_url].map(csvEscape).join(",")));
     saveBlob("salt_source_contracts.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
     return;
   }}
@@ -425,8 +441,10 @@ function downloadXlsx() {{
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sup), "By supplier");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(st), "By state");
   const docs = visible(docRows).map(r => ({{
-    "State": r.state, "Source document": r.doc, "FY from": r.fy_from,
-    "FY to": r.fy_to, "Suppliers": r.suppliers, "Published URL": r.url,
+    "State": r.state, "Source document": r.doc, "Filename": r.filename || r.doc,
+    "FY from": r.fy_from,
+    "FY to": r.fy_to, "Suppliers": r.suppliers,
+    "Published file URL": r.url, "Source page URL": r.page_url,
   }}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(docs), "Source contracts");
   XLSX.writeFile(wb, "salt_contract_tables.xlsx");

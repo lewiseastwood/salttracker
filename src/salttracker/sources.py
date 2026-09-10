@@ -151,6 +151,146 @@ class Doc:
     fetched_at: str = ""
     archived_timestamp: str | None = None
     notes: str = ""
+    page_url: str = ""
+
+
+# Michigan historical contract PDFs fetched 2026-09-08 from Wayback identity
+# copies of the DTMB contract files. Live michigan.gov overwrites the same
+# contract-number path each season; these captures are the bytes the tracker
+# parsed. Listing page at each capture: MI_SALT_PAGE.
+_MI_WAYBACK_SNAPS = (
+    ("768_snap2026-05.pdf", "20260520035130", "006/180000000768"),
+    ("787_snap2026-05.pdf", "20260520035130", "004/180000000787"),
+    ("768_snap2025-04.pdf", "20250418052020", "006/180000000768"),
+    ("787_snap2025-04.pdf", "20250418052020", "004/180000000787"),
+    ("768_snap2023-01.pdf", "20230127073006", "006/180000000768"),
+    ("787_snap2023-01.pdf", "20230127073006", "004/180000000787"),
+    ("791_snap2023-01.pdf", "20230127073006", "004/180000000791"),
+)
+
+# Printed cover of the newest change notice in each snap. Fiscal years on
+# parsed rows come from schedule titles inside the PDF, not from these dates
+# and not from the Wayback listing timestamp in the filename.
+MI_SNAP_IDENTITY = {
+    "768_snap2023-01.pdf": {
+        "contract_no": "180000000768",
+        "newest_cn": 13,
+        "cn_effective": "2023-06-20",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2024-08-31",
+        "newest_season": "2023/2024",
+        "kind": "option_year",
+        "label": "MA180000000768 CN13 · option year 2023/2024 (effective 20 Jun 2023)",
+    },
+    "768_snap2025-04.pdf": {
+        "contract_no": "180000000768",
+        "newest_cn": 16,
+        "cn_effective": "2024-09-23",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2025-08-31",
+        "newest_season": "2024/2025",
+        "kind": "mid_season_amendment",
+        "label": "MA180000000768 CN16 · mid-season amendment of 2024/2025 (effective 23 Sep 2024)",
+    },
+    "768_snap2026-05.pdf": {
+        "contract_no": "180000000768",
+        "newest_cn": 17,
+        "cn_effective": "2025-07-29",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2026-08-31",
+        "newest_season": "2025/2026",
+        "kind": "option_year",
+        "label": "MA180000000768 CN17 · option year 2025/2026 (effective 29 Jul 2025)",
+    },
+    "787_snap2023-01.pdf": {
+        "contract_no": "180000000787",
+        "newest_cn": 9,
+        "cn_effective": "2023-06-20",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2024-08-31",
+        "newest_season": "2023/2024",
+        "kind": "option_year",
+        "label": "MA180000000787 CN9 · option year 2023/2024 (effective 20 Jun 2023)",
+    },
+    "787_snap2025-04.pdf": {
+        "contract_no": "180000000787",
+        "newest_cn": 12,
+        "cn_effective": "2024-09-16",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2024-08-31",
+        "newest_season": "2024/2025",
+        "kind": "mid_season_amendment",
+        "label": "MA180000000787 CN12 · mid-season amendment of 2024/2025 (effective 16 Sep 2024)",
+    },
+    "787_snap2026-05.pdf": {
+        "contract_no": "180000000787",
+        "newest_cn": 13,
+        "cn_effective": "2025-07-29",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2026-08-31",
+        "newest_season": "2025/2026",
+        "kind": "option_year",
+        "label": "MA180000000787 CN13 · option year 2025/2026 (effective 29 Jul 2025)",
+    },
+    "791_snap2023-01.pdf": {
+        "contract_no": "180000000791",
+        "newest_cn": 3,
+        "cn_effective": "2021-09-01",
+        "term_start": "2018-09-01",
+        "revised_expiration": "2023-08-31",
+        "newest_season": "2021/2022",
+        "kind": "season_pricing_amendment",
+        "label": "MA180000000791 CN3 · 2021/2022 pricing (effective 1 Sep 2021; expires 31 Aug 2023)",
+    },
+}
+
+
+def snap_document_label(name: str) -> str:
+    ident = MI_SNAP_IDENTITY.get(name or "")
+    return ident["label"] if ident else str(name or "")
+
+
+def _wayback_identity(ts: str, original: str) -> str:
+    return f"https://web.archive.org/web/{ts}id_/{original}"
+
+
+def known_local_provenance() -> dict[str, dict]:
+    """Filename → url/page_url for files parsed from disk under a local alias."""
+    out: dict[str, dict] = {}
+    for name, ts, media in _MI_WAYBACK_SNAPS:
+        original = (
+            "https://www.michigan.gov/dtmb/-/media/Project/Websites/dtmb/"
+            f"Procurement/Contracts/MiDEAL-Media/{media}.pdf"
+        )
+        out[name] = {
+            "url": _wayback_identity(ts, original),
+            "page_url": f"https://web.archive.org/web/{ts}/{MI_SALT_PAGE}",
+            "notes": "wayback identity copy of DTMB contract PDF (local snap filename)",
+        }
+    return out
+
+
+def page_url_from_file_url(url: str | None) -> str | None:
+    """Landing page for a file URL, when one can be derived without guessing."""
+    if not url:
+        return None
+    text = str(url).strip()
+    if not text:
+        return None
+    sid = re.search(r"SID=(\d{10})", text, re.I)
+    file_sid = re.search(r"file=(6100\d{6})", text, re.I)
+    if "emarketplace.state.pa.us" in text and (sid or file_sid):
+        return f"{PA_EMKT}/Solicitations.aspx?SID={(sid or file_sid).group(1)}"
+    ts = re.search(r"web\.archive\.org/web/(\d+)", text)
+    if "michigan.gov" in text:
+        if ts:
+            return f"https://web.archive.org/web/{ts.group(1)}/{MI_SALT_PAGE}"
+        return MI_SALT_PAGE
+    if "/dgs/documents/costars/member-information" in text:
+        return PA_COSTARS_AEM_FOLDERS[0]
+    if "/dgs/documents/documents/costars" in text or "/dgs/documents/costars/" in text:
+        return PA_COSTARS_AEM_FOLDERS[1]
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -300,6 +440,7 @@ def _docs_from_michigan_html(html: str) -> list[Doc]:
             state="MI", name=f"MI_FY{fy or 'x'}_{label}_{cno or 'doc'}.pdf",
             url=url, vendor=vendor, fy=fy, contract_no=cno,
             notes="michigan.gov live listing",
+            page_url=MI_SALT_PAGE,
         ))
     return docs
 
@@ -358,6 +499,7 @@ def discover_michigan_archived() -> list[Doc]:
             url=f"https://web.archive.org/web/{ts}id_/{clean}",
             vendor=vendor, contract_no=cno, archived_timestamp=ts,
             notes="wayback cumulative contract (multi-season)",
+            page_url=f"https://web.archive.org/web/{ts}/{MI_SALT_PAGE}",
         ))
     return docs
 
@@ -445,6 +587,7 @@ def pa_solicitation_docs(sid: int) -> list[Doc]:
         docs.append(Doc(
             state="PA", name=name, url=f"{PA_EMKT}/{href}", fy=fy,
             notes=f"emarketplace {sid} attachment: {label[:70]}",
+            page_url=f"{PA_EMKT}/Solicitations.aspx?SID={sid}",
         ))
     return docs
 
@@ -478,6 +621,7 @@ def fetch_pa_costars_listing() -> tuple[list[Doc], str, int | None]:
                 docs.append(Doc(
                     state="PA", name=f"PA_live_{name}", url=href,
                     notes="costars html listing",
+                    page_url=url,
                 ))
         print(f"  Pennsylvania COSTARS HTML: HTTP {status if status is not None else 'no-response'} "
               f"({url}) {n_salt} salt PDF link(s)")
@@ -508,6 +652,7 @@ def fetch_pa_costars_listing() -> tuple[list[Doc], str, int | None]:
                 docs.append(Doc(
                     state="PA", name=f"PA_live_{safe}", url=file_url,
                     notes="costars aem listing",
+                    page_url=folder,
                 ))
                 n_salt += 1
             if n_salt and not selected_url.endswith(".1.json"):
@@ -572,6 +717,7 @@ def fetch_pa_elecbidd() -> tuple[list[Doc], str]:
                     name=f"PA_elecbidd_{re.sub(r'[^A-Za-z0-9._-]+', '_', str(number))}.html",
                     url=f"{PA_ELECBIDD.rstrip('/')}/Bidding/ViewBid/{bid_id}",
                     notes="costars elecbidd",
+                    page_url=PA_ELECBIDD,
                 ))
     print(f"  Pennsylvania COSTARS e-bidding: HTTP {status if status is not None else 'no-response'} "
           f"({len(docs)} salt bid(s))")
@@ -664,6 +810,9 @@ def write_manifest(docs: list[Doc], path: str) -> None:
         if prior.get("sha256") == record.get("sha256"):
             record["fetched_at"] = prior.get("fetched_at") or record.get("fetched_at")
         record["last_verified_at"] = doc.fetched_at or prior.get("last_verified_at")
+        if not record.get("page_url"):
+            record["page_url"] = prior.get("page_url") or page_url_from_file_url(
+                record.get("url")) or ""
         merged[doc.name] = record
 
     with open(path, "w") as fh:

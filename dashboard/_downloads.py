@@ -49,6 +49,10 @@ def _clean_url(url: str | None) -> str | None:
     return text
 
 
+def published_link(value) -> str | None:
+    return _clean_url(value)
+
+
 def _looks_like_file(blob: bytes) -> bool:
     if blob[:4] == b"%PDF" or blob[:2] == b"PK":
         return True
@@ -59,15 +63,26 @@ def _looks_like_file(blob: bytes) -> bool:
 
 
 def load_source_bytes(doc_name: str, state: str | None, url: str | None,
-                      raw_dir: str = RAW_DIR) -> tuple[bytes | None, str | None]:
-    """Return (bytes, None) or (None, failure message including the URL)."""
+                      raw_dir: str = RAW_DIR,
+                      page_url: str | None = None) -> tuple[bytes | None, str | None]:
+    """Return (bytes, None) or (None, failure message).
+
+    Three non-success states, kept distinct because an empty file URL is not
+    a fetch failure:
+    * fetch failed — a file URL was tried and did not return a contract file
+    * no stable public file URL — no direct file; a landing page may exist
+    * provenance unknown — neither a file URL nor a source page is recorded
+    """
     path = local_source_path(doc_name, state, raw_dir=raw_dir)
     if path:
         with open(path, "rb") as fh:
             return fh.read(), None
     url = _clean_url(url)
+    page = _clean_url(page_url)
     if not url:
-        return None, f"{doc_name}: no published URL"
+        if page:
+            return None, f"{doc_name}: no stable public file URL; page {page}"
+        return None, f"{doc_name}: provenance unknown"
     resp, status = http_get(url)
     if resp is None:
         return None, f"{doc_name}: {url} failed (HTTP {status})"
@@ -88,6 +103,7 @@ def zip_sources(rows: list[dict], raw_dir: str = RAW_DIR) -> tuple[bytes | None,
             name = str(row.get("source_doc") or "contract")
             blob, err = load_source_bytes(
                 name, row.get("state"), row.get("source_url"), raw_dir=raw_dir,
+                page_url=row.get("source_page_url"),
             )
             if err:
                 failures.append(err)
