@@ -22,9 +22,14 @@ def test_contacts_are_five_pa_counties_with_aoro():
     assert by_county["Erie"]["aoro_email"] == "DHeasley@eriecountypa.gov"
     assert by_county["Washington"]["aoro_status"] == "UNVERIFIED"
     assert by_county["Washington"]["aoro_email"] == "UNVERIFIED"
+    assert by_county["Washington"]["submission_method"].startswith("web form")
+    assert by_county["Washington"]["rtk_web_form_url"].startswith("https://apps.docusign.com/webforms/")
     for row in rows:
         assert row["aoro_source_url"].startswith("http")
         assert row["purchasing_email"]
+        assert row["salt_holder_has_own_oro"] == "no"
+        assert row["salt_routing_cite"].startswith("http")
+        assert row["submission_method"]
         assert "purchasing@" not in (row["aoro_email"] or "").lower() or row["aoro_status"] == "UNVERIFIED"
 
 
@@ -35,14 +40,13 @@ def test_draft_only_does_not_send(tmp_path, monkeypatch):
     rc = followup.main([])
     assert rc == 0
     drafts = list((tmp_path / "drafts").glob("*.eml"))
-    assert len(drafts) == 5
+    assert len(drafts) == 4
+    assert not any("washington" in p.name for p in drafts)
     xlsx = tmp_path / "PA_procurement_contacts.xlsx"
     assert xlsx.exists()
     body = drafts[0].read_text(errors="replace")
     assert "Right-to-Know" in body
     assert "COSTARS" in body
-    wash = next(p for p in drafts if "washington" in p.name)
-    assert "UNVERIFIED-DO-NOT-SEND" in wash.read_text(errors="replace")
 
 
 def test_send_without_confirm_raises(monkeypatch):

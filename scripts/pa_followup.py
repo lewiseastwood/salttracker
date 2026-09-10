@@ -149,6 +149,8 @@ def write_drafts(rows: list[dict], stamp: str) -> list[Path]:
     DRAFTS.mkdir(parents=True, exist_ok=True)
     written = []
     for row in rows:
+        if not aoro_email(row):
+            continue
         msg = draft_message(row, stamp)
         slug = row["county"].lower().replace(" ", "_")
         path = DRAFTS / f"{stamp[:10]}_{slug}.eml"
