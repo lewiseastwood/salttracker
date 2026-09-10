@@ -101,6 +101,9 @@ PA_SEED_DOCS = [
      "https://web.archive.org/web/20250205034653id_/https://www.pa.gov/content/dam/copapwp-pagov/"
      "en/dgs/documents/documents/costars/sodium%20chloride%20(road%20salt)%202024-2025%20season%20contract.pdf",
      2025),
+    ("PA_FY2024_COSTARS.pdf",
+     "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars/"
+     "sodium%20chloride%20road%20salt%202023-2024%20season%20contract.pdf", 2024),
     ("PA_ChangeNotice_4600016539_Morton.pdf",
      "https://www.emarketplace.state.pa.us/FileDownload.aspx?file=4600016539%5CChangeNotice.pdf", None),
     ("PA_Award_NOA_6100048201.pdf",

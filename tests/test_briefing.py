@@ -195,6 +195,7 @@ def test_source_documents_catalog_has_urls():
     fy24 = catalog[catalog["source_doc"] == "PA_FY2024_COSTARS.pdf"].iloc[0]
     assert isinstance(fy24["source_url"], str) and fy24["source_url"].startswith("http")
     assert "2023-2024" in fy24["source_url"]
+    assert "agencies/dgs/programs-and-services/costars" in str(fy24["source_page_url"])
     cargill = catalog[catalog["source_doc"] == "791_snap2023-01.pdf"]
     assert not cargill.empty
     assert "CN3" in str(cargill.iloc[0]["source_label"])
@@ -242,6 +243,26 @@ def test_executive_source_table_hides_aliases_and_raw_urls():
     assert "Open" in briefing.executive_source_html(cat.loc[[detroit.name]])
     assert "id_/" not in str(detroit["source_url"])
     assert "180000000768" in str(detroit["source_url"])
+
+
+def test_pa_fy2024_opens_even_when_csv_urls_are_blank():
+    cat = pd.DataFrame([{
+        "state": "PA",
+        "source_doc": "PA_FY2024_COSTARS.pdf",
+        "source_label": "PA_FY2024_COSTARS.pdf",
+        "fiscal_year_from": 2024,
+        "fiscal_year_to": 2024,
+        "suppliers": "American Rock Salt, Cargill",
+        "source_url": None,
+        "source_page_url": "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars",
+    }])
+    markup = briefing.executive_source_html(cat)
+    assert "PA_FY2024_COSTARS.pdf" not in markup
+    assert "COSTARS FY2024 season contract" in markup
+    assert "2023-2024" in markup
+    assert "agencies/dgs/programs-and-services/costars" in markup
+    assert markup.count(">Open<") == 2
+    assert "agencies/dgs/programs-and-services/costars" in markup
 
 
 def test_mi_snaps_open_even_when_csv_urls_are_blank():

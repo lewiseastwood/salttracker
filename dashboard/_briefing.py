@@ -112,8 +112,9 @@ def clickable_url(url: str | None) -> str | None:
     href = re.sub(r"(https://web\.archive\.org/web/\d+)id_/", r"\1/", href)
     m = re.match(r"^(https://web\.archive\.org/web/\d+/)(https://.+)$", href)
     if m and "%3A" not in m.group(2):
-        return m.group(1) + quote(m.group(2), safe="")
-    return href
+        href = m.group(1) + quote(m.group(2), safe="")
+    # Parentheses in pa.gov filenames are stripped from <a href> by markdown.
+    return href.replace("(", "%28").replace(")", "%29").replace(" ", "%20")
 
 
 # Viewer URLs (no id_) plus labels so the table does not depend on salttracker.sources.
@@ -167,9 +168,68 @@ def _snap_pdf_page(name: str) -> tuple[str | None, str | None, str | None]:
     return pdf, page, label
 
 
-def provenance_urls(name: str) -> tuple[str | None, str | None]:
-    """Wayback file + listing page for a Michigan snap alias."""
+_PA_COSTARS_PAGE = "https://www.pa.gov/agencies/dgs/programs-and-services/costars"
+_PA_EMKT = "https://www.emarketplace.state.pa.us"
+_PA_DOCS = {
+    "PA_FY2024_COSTARS.pdf": (
+        "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars/"
+        "sodium%20chloride%20road%20salt%202023-2024%20season%20contract.pdf",
+        _PA_COSTARS_PAGE,
+    ),
+    "PA_FY2025_COSTARS.pdf": (
+        "https://web.archive.org/web/20250205034653/"
+        "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars/"
+        "sodium%20chloride%20(road%20salt)%202024-2025%20season%20contract.pdf",
+        _PA_COSTARS_PAGE,
+    ),
+    "PA_FY2026_COSTARS_6100053321.pdf": (
+        "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/costars/"
+        "2025-2026%20sodium%20chloride%20(road%20salt)%20season%20contract.pdf",
+        _PA_COSTARS_PAGE,
+    ),
+    "PA_FY2027_COSTARS_6100065611.pdf": (
+        "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/costars/"
+        "member-information/documents/2026-2027%20sodium%20chloride%20(road%20salt)"
+        "%20season%20contract.pdf",
+        _PA_COSTARS_PAGE,
+    ),
+    "PA_estimates_FY2022_6100053321.xlsx": (
+        f"{_PA_EMKT}/FileDownload.aspx?file=6100053321/Solicitation_3.xlsx",
+        f"{_PA_EMKT}/Solicitations.aspx?SID=6100053321",
+    ),
+    "PA_estimates_FY2023_6100056192.pdf": (
+        f"{_PA_EMKT}/FileDownload.aspx?file=6100056192/Solicitation_2.pdf",
+        f"{_PA_EMKT}/Solicitations.aspx?SID=6100056192",
+    ),
+    "PA_estimates_FY2027_6100065611.pdf": (
+        f"{_PA_EMKT}/FileDownload.aspx?file=6100065611/Solicitation_21.pdf",
+        f"{_PA_EMKT}/Solicitations.aspx?SID=6100065611",
+    ),
+}
+
+
+def _known_pdf_page(name: str) -> tuple[str | None, str | None]:
     pdf, page, _ = _snap_pdf_page(name)
+    if pdf:
+        return pdf, page
+    rec = _PA_DOCS.get(str(name) or "")
+    if rec:
+        return rec
+    return None, None
+
+
+def _usable_listing(name: str, page: str | None) -> str | None:
+    """AEM DAM folders 404; send COSTARS rows to the live program page."""
+    href = _as_url(page)
+    _, known_page = _known_pdf_page(name)
+    if href and "/content/dam/" in href and not href.lower().endswith((".pdf", ".xlsx", ".xls")):
+        return known_page or _PA_COSTARS_PAGE
+    return href or known_page
+
+
+def provenance_urls(name: str) -> tuple[str | None, str | None]:
+    """Published PDF + listing page for a known local alias."""
+    pdf, page = _known_pdf_page(name)
     if pdf:
         return pdf, page
     try:
@@ -244,17 +304,17 @@ def source_table_for_export(catalog: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for _, row in catalog.iterrows():
         fname = str(row.get("source_doc") or "").strip()
-        url = clickable_url(_as_url(row.get("source_url")))
-        page = clickable_url(_as_url(row.get("source_page_url")))
-        snap_pdf, snap_page, _ = _snap_pdf_page(fname)
+        known_pdf, _ = _known_pdf_page(fname)
+        url = clickable_url(_as_url(row.get("source_url"))) or clickable_url(known_pdf)
+        page = clickable_url(_usable_listing(fname, _as_url(row.get("source_page_url"))))
         rows.append({
             "State": _state_display(row.get("state")),
             "Contract": document_label(fname) if fname else (row.get("source_label") or ""),
             "Filename": fname,
             "Years": years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to")),
             "Supplier": row.get("suppliers") or "",
-            "PDF URL": url or snap_pdf or "",
-            "Listing URL": page or snap_page or "",
+            "PDF URL": url or "",
+            "Listing URL": page or "",
         })
     return pd.DataFrame(rows)
 
@@ -276,9 +336,9 @@ def executive_source_html(catalog: pd.DataFrame) -> str:
     body = []
     for _, row in catalog.iterrows():
         fname = str(row.get("source_doc") or "").strip()
-        snap_pdf, snap_page, _ = _snap_pdf_page(fname)
-        url = clickable_url(_as_url(row.get("source_url"))) or clickable_url(snap_pdf)
-        page = clickable_url(_as_url(row.get("source_page_url"))) or clickable_url(snap_page)
+        known_pdf, _ = _known_pdf_page(fname)
+        url = clickable_url(_as_url(row.get("source_url"))) or clickable_url(known_pdf)
+        page = clickable_url(_usable_listing(fname, _as_url(row.get("source_page_url"))))
         label = document_label(fname) if fname else str(row.get("source_label") or "").strip()
         years = years_label(row.get("fiscal_year_from"), row.get("fiscal_year_to"))
         supplier = html.escape(row.get("suppliers") or "—")
@@ -634,9 +694,9 @@ def source_documents(raw: pd.DataFrame) -> pd.DataFrame:
         url = _first_url(grp["source_url"]) if "source_url" in grp.columns else None
         page = (_first_url(grp["source_page_url"])
                 if "source_page_url" in grp.columns else None)
-        snap_url, snap_page = provenance_urls(str(name))
-        url = clickable_url(url) or clickable_url(snap_url)
-        page = clickable_url(page) or clickable_url(snap_page)
+        known_pdf, _ = _known_pdf_page(str(name))
+        url = clickable_url(url) or clickable_url(known_pdf)
+        page = clickable_url(_usable_listing(str(name), page))
         rows.append({
             "state": states[0] if len(states) == 1 else ", ".join(states),
             "source_doc": str(name),
