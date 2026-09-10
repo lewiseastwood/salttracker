@@ -12,6 +12,10 @@ data/interim/parse_cache/
 data/raw/
 data/interim/mi_page.html
 data/interim/pa_cdx.json
-data/output/pa_followup/drafts/
 *.pdf
 !data/output/
+# Drafts, filled RTKL PDFs, and the follow-up workbook can contain a requester
+# home address. Ignore the whole follow-up output tree. *.eml anywhere.
+# These must come after !data/output/ so that rule cannot re-include them.
+data/output/pa_followup/
+*.eml

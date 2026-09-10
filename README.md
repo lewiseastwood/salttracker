@@ -129,13 +129,26 @@ Each run also appends to `data/refresh_log.jsonl`.
 
 ## Pennsylvania follow-up (pilot)
 
-Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack for the five Pennsylvania counties with the most FY2027 estimated lot requirements (Allegheny, Westmoreland, Luzerne, Washington, Erie). Those figures are geographic lots, not county-government purchases:
+Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack for the five Pennsylvania counties with the most FY2027 estimated lot requirements (Allegheny, Westmoreland, Luzerne, Washington, Erie), plus one DGS letter. Those county figures are geographic lots, not county-government purchases.
 
 ```bash
+# Put these in a gitignored .env, or export them. Drafts are refused without both.
+# SALTTRACKER_FOLLOWUP_REPLY_TO=you@example.com
+# SALTTRACKER_FOLLOWUP_ADDRESS='123 Main Street, City, PA 17101'
 PYTHONPATH=src .venv/bin/python scripts/pa_followup.py
 ```
 
-That writes `data/output/pa_followup/PA_procurement_contacts.xlsx` and `.eml` drafts. Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED; file by mail. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. Optional `--poll-inbox` forwards unseen IMAP replies that look like salt/RTK responses to `SALTTRACKER_ALERT_EMAIL`.
+That writes `data/output/pa_followup/` (gitignored): a contacts workbook and `.eml` drafts (county letters plus a DGS letter). Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED; file by mail. The DGS draft goes to the DGS AORO (`DGS-RTK@pa.gov`), not the commodity specialist, and attaches a filled copy of DGS’s standard RTKL request form. Drafts are **refused** unless `SALTTRACKER_FOLLOWUP_REPLY_TO` and `SALTTRACKER_FOLLOWUP_ADDRESS` are set (the RTKL requires a name and a verifiable postal address). Those values belong in `.env` or the environment — never in `data/pa_followup/contacts.csv`. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. There is no inbox watcher: `--poll-inbox` was removed because fetching mail would mark messages read on many servers, and five letters are a mail-client filter, not a daemon.
+
+**Clock.** The five-business-day period starts when the **AORO receives** the request, not when you hit send (65 P.S. § 67.901). Email that arrives after regular business hours is received the next business day. Fill `received_on` in `data/pa_followup/contacts.csv` with that receipt date (`YYYY-MM-DD`); fill `responded_on` when a written response arrives. `--clock` computes `response_due` (five Commonwealth business days; day of receipt not counted), days remaining, overdue flags, and the 15-business-day appeal deadline from a deemed denial. It prints to stdout and does not send mail, write drafts, or need the sender env vars.
+
+```bash
+PYTHONPATH=src .venv/bin/python scripts/pa_followup.py --clock
+```
+
+DGS can still invoke a 30-day extension (§ 67.902); that is likely for records touching third-party commercial data. `--clock` tracks the statutory five-day clock, not an extension. Holidays are Commonwealth administrative-office closings (Governor’s Office Administrative Circular 25-13). County AOROs may close on a different calendar.
+
+The DGS letter asks up front for a fallback if per-supplier volumes are withheld: aggregate tons shipped by member and by agency, without supplier attribution.
 
 ## Extraction hazards handled
 
@@ -240,7 +253,7 @@ src/salttracker/
   parsers/pennsylvania.py DGS/COSTARS county pricing
 dashboard/app.py          Streamlit dashboard
 scripts/refresh.py        end-to-end refresh
-scripts/pa_followup.py    PA county RTK drafts (does not send unless confirmed)
+scripts/pa_followup.py    PA RTK drafts + --clock (does not send unless confirmed)
 tests/test_validation.py  document-anchored validation
 scripts/persist_refresh.sh  commit scrape outputs including failures
 tests/test_validation.py  document-anchored validation

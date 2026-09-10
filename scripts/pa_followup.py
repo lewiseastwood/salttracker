@@ -1,58 +1,520 @@
 #!/usr/bin/env python3
 """Pennsylvania follow-up: contacts workbook and Right-to-Know drafts.
 
-Pilot set is the five counties with the largest FY2027 contracted tons on the
-statewide COSTARS award. Those awards are already in the tracker. The letters
-ask each county for *its own* sodium-chloride supply contract (or a statement
-that it buys only through COSTARS), which is the gap the statewide scrape cannot
-close.
+County letters ask only for that county's own COSTARS line under contract
+6100065611 and any off-contract county buy — not municipal purchases. The DGS
+letter (the one worth sending) asks for supplier weekly shipment reports under
+the same contract.
 
 Default is draft-only. This script does not send mail unless you pass --send
-and set SALTTRACKER_FOLLOWUP_CONFIRM=YES. Replies can be polled from IMAP and
-forwarded to SALTTRACKER_ALERT_EMAIL; that also requires explicit flags.
+and set SALTTRACKER_FOLLOWUP_CONFIRM=YES. Drafts are refused if
+SALTTRACKER_FOLLOWUP_REPLY_TO or SALTTRACKER_FOLLOWUP_ADDRESS is unset: the RTKL
+requires a name and a verifiable address.
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import datetime as dt
-import imaplib
+import io
 import os
+import re
 import smtplib
 import sys
 from email.message import EmailMessage
 from email.parser import BytesParser
 from email.policy import default as email_policy
+from email.utils import formatdate
 from pathlib import Path
 
+import requests
 from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
+from pypdf import PdfReader, PdfWriter
+from pypdf.generic import BooleanObject, NameObject
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTACTS = ROOT / "data" / "pa_followup" / "contacts.csv"
 OUT = ROOT / "data" / "output" / "pa_followup"
 DRAFTS = OUT / "drafts"
 
-SUBJECT = "Right-to-Know request: road salt / sodium chloride supply contract"
+CONTRACT_NO = "6100065611"
+CONTRACT_TERM = "1 August 2026 through 31 July 2027"
+SEASON = "2026–27 (FY2027)"
 
-BODY = """{greeting}
+SUBJECT = (
+    f"Right-to-Know request: COSTARS sodium chloride contract {CONTRACT_NO}, {SEASON}"
+)
 
-I am requesting public records under Pennsylvania's Right-to-Know Law (65 P.S. § 67.101 et seq.) for academic research on contracted road-salt prices.
+COUNTY_BODY = """{greeting}
 
-Please provide, for the current or most recently awarded winter season:
+I am requesting public records under Pennsylvania's Right-to-Know Law (65 P.S. § 67.101 et seq.).
 
-1. The county's (or its participating municipalities') sodium chloride / road-salt supply contract or purchase order, including awarded vendor, unit price, and contracted tons.
-2. If the county buys only through the Commonwealth COSTARS sodium chloride contract and holds no separate award, a short written confirmation of that.
+Please provide:
 
-I am not seeking bid bonds, sealed proposals that remain unopened, or any record that is not public. Electronic copies (PDF) are preferred.
+1. {county} County's own sodium chloride (bulk road salt) purchases under Commonwealth COSTARS contract {contract_no} for the {season} season (contract term {contract_term}): tons committed and tons actually received, and invoices or delivery records if held.
+2. Any separate sodium chloride / road-salt purchase by {county} County that was not made under that COSTARS contract.
 
-Please send records or a response to: {reply_to}
+I am not seeking bid bonds, sealed proposals that remain unopened, records of municipalities or other COSTARS members, or any record that is not public. Electronic copies (PDF) are preferred.
+
+Please send records or a response to:
+
+{sender_name}
+{sender_address}
+{reply_to}
 
 Thank you for your time.
 
 {sender_name}
-{sender_org}
 """
+
+DGS_SUBJECT = (
+    f"Right-to-Know request: weekly salt shipment reports, contract {CONTRACT_NO}, {SEASON}"
+)
+
+DGS_BODY = """{greeting}
+
+I am requesting public records under Pennsylvania's Right-to-Know Law (65 P.S. § 67.101 et seq.).
+
+Please provide the weekly shipment reports that awarded suppliers file with DGS under sodium chloride (bulk road salt) contract {contract_no} (solicitation {contract_no}) for the {season} season (contract term {contract_term}). I am asking for the reports by COSTARS member and by PennDOT / non-PennDOT agency, including awarded tons and tons shipped (and tons shipped to date, if that is how the reports are kept). Monthly COSTARS sales summaries for the same contract and period, if held separately from the weekly files, are also requested.
+
+If per-supplier shipment volumes are withheld as confidential proprietary information, or if suppliers are given notice to object to release, I will accept as an alternative the same figures aggregated by COSTARS member and by agency without supplier attribution: tons awarded and tons shipped, by member and by agency, for this contract and period. I am requesting that narrower alternative now so a third-party notice process need not result in a full denial and a second request.
+
+I am not seeking bid bonds, sealed proposals that remain unopened, or any record that is not public. Electronic copies (Excel or PDF) are preferred. A completed DGS standard RTKL request form is attached.
+
+Please send records or a response to:
+
+{sender_name}
+{sender_address}
+{reply_to}
+
+Thank you for your time.
+
+{sender_name}
+"""
+
+# Published DGS RTK intake (retrieved 10 Sep 2026). Not the commodity specialist.
+DGS_AORO = {
+    "officer": "L. Paul Vezzetti",
+    "title": "Agency Open Records Officer",
+    "attn": "Cheryl Spackman, Right-To-Know Law (RTKL) Coordinator",
+    "email": "DGS-RTK@pa.gov",
+    "address": "Department of General Services, 603 North Office Building, Harrisburg, PA 17125",
+    "source_url": (
+        "https://www.pa.gov/services/dgs/submit-a-right-to-know-request-"
+        "to-the-pennsylvania-department-of-general-services"
+    ),
+}
+
+DGS_FORM_URL = (
+    "https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/"
+    "documents/press-office/rtkrequestform.pdf"
+)
+DGS_FORM_FILENAME = f"DGS_RTKL_request_{CONTRACT_NO}.pdf"
+
+# Commonwealth administrative-office holidays. The named days come from
+# Governor's Office Administrative Circular 25-13 (Holidays — 2026),
+# 19 Aug 2025, https://www.pa.gov/content/dam/copapwp-pagov/en/oa/documents/policies/ac/25-13.pdf
+# (also AC 24-12 for 2025). Those circulars close state offices on New Year's
+# Day, Dr. Martin Luther King Jr. Day, Presidents' Day, Memorial Day,
+# Juneteenth National Freedom Day, Independence Day, Labor Day, Indigenous
+# People's Day, Veterans Day, Thanksgiving, the day after Thanksgiving, and
+# Christmas. Weekend observances follow the Friday-before / Monday-after
+# rule the circulars actually use (Independence Day 2026 is Friday 3 July
+# because 4 July is a Saturday). Counties may close on a different calendar;
+# this list is the one that governs DGS.
+RESPONSE_BUSINESS_DAYS = 5
+APPEAL_BUSINESS_DAYS = 15
+
+
+def _nth_weekday(year: int, month: int, weekday: int, n: int) -> dt.date:
+    d = dt.date(year, month, 1)
+    d += dt.timedelta(days=(weekday - d.weekday()) % 7)
+    return d + dt.timedelta(weeks=n - 1)
+
+
+def _last_weekday(year: int, month: int, weekday: int) -> dt.date:
+    if month == 12:
+        d = dt.date(year, 12, 31)
+    else:
+        d = dt.date(year, month + 1, 1) - dt.timedelta(days=1)
+    d -= dt.timedelta(days=(d.weekday() - weekday) % 7)
+    return d
+
+
+def _observed(day: dt.date) -> dt.date:
+    if day.weekday() == 5:
+        return day - dt.timedelta(days=1)
+    if day.weekday() == 6:
+        return day + dt.timedelta(days=1)
+    return day
+
+
+def commonwealth_holidays(year: int) -> set[dt.date]:
+    """Closed dates for Commonwealth administrative offices in `year`."""
+    return {
+        _observed(dt.date(year, 1, 1)),
+        _nth_weekday(year, 1, 0, 3),
+        _nth_weekday(year, 2, 0, 3),
+        _last_weekday(year, 5, 0),
+        _observed(dt.date(year, 6, 19)),
+        _observed(dt.date(year, 7, 4)),
+        _nth_weekday(year, 9, 0, 1),
+        _nth_weekday(year, 10, 0, 2),
+        _observed(dt.date(year, 11, 11)),
+        _nth_weekday(year, 11, 3, 4),
+        _nth_weekday(year, 11, 3, 4) + dt.timedelta(days=1),
+        _observed(dt.date(year, 12, 25)),
+    }
+
+
+def is_commonwealth_business_day(day: dt.date) -> bool:
+    if day.weekday() >= 5:
+        return False
+    return day not in commonwealth_holidays(day.year)
+
+
+def add_business_days(start: dt.date, n: int) -> dt.date:
+    """Advance `n` Commonwealth business days after `start` (start not counted).
+
+    Management Directive 205.36 Amended: the day a RTKL request is received
+    (or deemed received) is not counted; the first day of the five-business-day
+    period is the agency's next business day.
+    https://www.pa.gov/content/dam/copapwp-pagov/en/dgs/documents/documents/press-office/205_36.pdf
+    """
+    d = start
+    left = n
+    while left:
+        d += dt.timedelta(days=1)
+        if is_commonwealth_business_day(d):
+            left -= 1
+    return d
+
+
+def next_business_day_on_or_after(day: dt.date) -> dt.date:
+    d = day
+    while not is_commonwealth_business_day(d):
+        d += dt.timedelta(days=1)
+    return d
+
+
+def business_days_between(later_exclusive_start: dt.date, end: dt.date) -> int:
+    """Business days strictly after `later_exclusive_start` through `end` inclusive."""
+    if end <= later_exclusive_start:
+        return 0
+    n = 0
+    d = later_exclusive_start
+    while d < end:
+        d += dt.timedelta(days=1)
+        if is_commonwealth_business_day(d):
+            n += 1
+    return n
+
+
+def parse_iso_date(value: str) -> dt.date | None:
+    text = (value or "").strip()
+    if not text:
+        return None
+    return dt.date.fromisoformat(text)
+
+
+def clock_row(row: dict, today: dt.date) -> dict:
+    """Per-request RTKL clock. Receipt by the AORO starts it, not send date."""
+    label = row.get("county") or "?"
+    received_raw = parse_iso_date(row.get("received_on") or "")
+    responded = parse_iso_date(row.get("responded_on") or "")
+    result = {
+        "label": label,
+        "received_on": None,
+        "received_note": "",
+        "response_due": None,
+        "remaining": "—",
+        "status": "not received",
+        "overdue": False,
+        "appeal_by": None,
+        "appeal_remaining": "",
+        "flag": "",
+    }
+    if received_raw is None:
+        return result
+    received = next_business_day_on_or_after(received_raw)
+    result["received_on"] = received
+    if received != received_raw:
+        result["received_note"] = (
+            f"entered {received_raw.isoformat()}; treated as received {received.isoformat()} "
+            "(weekend/holiday → next business day)"
+        )
+    due = add_business_days(received, RESPONSE_BUSINESS_DAYS)
+    result["response_due"] = due
+    if responded is not None:
+        result["status"] = "responded"
+        result["remaining"] = "—"
+        return result
+    if today <= due:
+        left = business_days_between(today, due)
+        result["status"] = "awaiting"
+        result["remaining"] = "due today" if left == 0 else f"{left} business day" + ("s" if left != 1 else "")
+        return result
+    appeal_by = add_business_days(due, APPEAL_BUSINESS_DAYS)
+    result["overdue"] = True
+    result["appeal_by"] = appeal_by
+    past = (today - due).days
+    result["remaining"] = f"{past} calendar day" + ("s" if past != 1 else "") + " past due"
+    if today <= appeal_by:
+        appeal_left = business_days_between(today, appeal_by)
+        result["status"] = "OVERDUE"
+        result["flag"] = "OVERDUE — deemed denial; appeal window open"
+        result["appeal_remaining"] = (
+            "due today" if appeal_left == 0
+            else f"{appeal_left} business day" + ("s" if appeal_left != 1 else "") + " left"
+        )
+    else:
+        result["status"] = "OVERDUE"
+        result["flag"] = "OVERDUE — appeal window closed"
+        result["appeal_remaining"] = "closed"
+    return result
+
+
+def format_clock_report(rows: list[dict], today: dt.date) -> str:
+    lines = [
+        f"PA RTKL clock  today {today.isoformat()}",
+        "The five-business-day period starts when the AORO receives the request, not when you send it",
+        "(65 P.S. § 67.901; Commonwealth v. Donahue, 98 A.3d 1223 (Pa. 2014)).",
+        "Email after regular business hours is received the next business day (MD 205.36 Amended;",
+        "OOR AORO Guidebook). Fill received_on with that receipt date. Day of receipt is not counted.",
+        "Holidays: Commonwealth administrative offices (AC 25-13, 2026).",
+        "A missed deadline is a deemed denial; appeal by 15 business days after that date (§ 67.1101).",
+        "",
+    ]
+    any_overdue = False
+    for row in rows:
+        info = clock_row(row, today)
+        head = info["label"]
+        if info["overdue"]:
+            any_overdue = True
+            head = f"{head}  {info['flag']}"
+        rec = info["received_on"].isoformat() if info["received_on"] else "—"
+        due = info["response_due"].isoformat() if info["response_due"] else "—"
+        lines.append(head)
+        lines.append(f"  received_on     {rec}")
+        if info["received_note"]:
+            lines.append(f"                  {info['received_note']}")
+        lines.append(f"  response_due    {due}")
+        lines.append(f"  remaining       {info['remaining']}")
+        lines.append(f"  status          {info['status']}")
+        if info["appeal_by"] is not None:
+            lines.append(
+                f"  appeal_by       {info['appeal_by'].isoformat()}  "
+                f"(15 business days from deemed denial; {info['appeal_remaining']})"
+            )
+        lines.append("")
+    if any_overdue:
+        lines.append("Flagged rows are overdue. A deemed denial starts the 15-business-day appeal window.")
+    else:
+        lines.append("No overdue rows.")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+class SenderConfigError(RuntimeError):
+    """Drafts cannot be written without a reply-to and a postal address."""
+
+
+def load_local_env(path: Path | None = None) -> None:
+    """Load ROOT/.env into os.environ without overriding values already set.
+
+    The file is gitignored. Shell exports win. Values are never printed.
+    """
+    env_path = path or (ROOT / ".env")
+    if not env_path.is_file():
+        return
+    for raw in env_path.read_text().splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+def is_dgs_row(row: dict) -> bool:
+    return (row.get("county") or "").strip().upper() == "DGS"
+
+
+def parse_mailing_address(address: str) -> tuple[str, str, str, str]:
+    """Split a one-line US address into street, city, state, zip.
+
+    If the line does not match 'street, city, ST ZIP', the whole string is
+    the street and the other parts are empty.
+    """
+    text = " ".join((address or "").split())
+    match = re.search(
+        r"^(.*?),\s*([^,]+),\s*([A-Za-z]{2})\s+(\d{5}(?:-\d{4})?)$",
+        text,
+    )
+    if match:
+        return match.group(1), match.group(2), match.group(3).upper(), match.group(4)
+    return text, "", "", ""
+
+
+def dgs_greeting() -> str:
+    return (
+        f"Dear {DGS_AORO['officer']}, {DGS_AORO['title']}:\n\n"
+        f"Attn: {DGS_AORO['attn']}"
+    )
+
+
+def dgs_letter_text(reply: str, address: str, name: str) -> str:
+    return DGS_BODY.format(
+        greeting=dgs_greeting(),
+        contract_no=CONTRACT_NO,
+        season=SEASON,
+        contract_term=CONTRACT_TERM,
+        sender_name=name,
+        sender_address=address,
+        reply_to=reply,
+    )
+
+
+def dgs_records_requested() -> tuple[str, str]:
+    """Primary and continuation text for the DGS standard RTKL form."""
+    primary = (
+        f"Weekly shipment reports that awarded suppliers file with DGS under "
+        f"sodium chloride (bulk road salt) contract {CONTRACT_NO} (solicitation "
+        f"{CONTRACT_NO}) for the {SEASON} season (contract term {CONTRACT_TERM}). "
+        "By COSTARS member and by PennDOT / non-PennDOT agency, including awarded "
+        "tons and tons shipped (and tons shipped to date, if that is how the "
+        "reports are kept). Monthly COSTARS sales summaries for the same contract "
+        "and period, if held separately from the weekly files."
+    )
+    continuation = (
+        "Fallback: if per-supplier shipment volumes are withheld as confidential "
+        "proprietary information, or if suppliers are given notice to object, I "
+        "will accept aggregate tons awarded and tons shipped by COSTARS member "
+        "and by agency, without supplier attribution, for the same contract and "
+        "period. Electronic copies (Excel or PDF) preferred. Not seeking bid "
+        "bonds, sealed unopened proposals, or non-public records."
+    )
+    return primary, continuation
+
+
+def dgs_form_paste_block(reply: str, address: str, name: str) -> str:
+    street, city, state, zip_code = parse_mailing_address(address)
+    primary, continuation = dgs_records_requested()
+    return (
+        "DGS STANDARD RTKL FORM — PASTE BLOCK\n"
+        "Source: " + DGS_FORM_URL + "\n"
+        "SUBMITTED TO AGENCY NAME: Pennsylvania Department of General Services "
+        "(Attn: AORO)\n"
+        "Date Request Submitted: (fill on the day you send)\n"
+        "Submitted via: Email\n"
+        f"Full Name: {name}\n"
+        "Company: (leave blank)\n"
+        "Please send response via: Email\n"
+        f"Email: {reply}\n"
+        f"Mailing Address: {street}\n"
+        f"City: {city}    State: {state}    Zip: {zip_code}\n"
+        "Telephone: (leave blank unless you want a call)\n"
+        "How do you prefer to be contacted: Email\n"
+        "Affirm US resident / true contact info: checked\n"
+        f"RECORDS REQUESTED (page 1): {primary}\n"
+        f"RECORDS REQUESTED (continued): {continuation}\n"
+        "DO YOU WANT COPIES?: Yes, electronic\n"
+        "Notify me if fees will be more than: $100\n"
+        "Certified copies: No\n"
+    )
+
+
+def fetch_dgs_rtkl_form() -> bytes:
+    response = requests.get(
+        DGS_FORM_URL,
+        timeout=30,
+        headers={
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+            ),
+            "Accept": "application/pdf,*/*",
+        },
+    )
+    response.raise_for_status()
+    if not response.content.startswith(b"%PDF"):
+        raise RuntimeError("DGS RTKL form URL did not return a PDF")
+    return response.content
+
+
+def dgs_form_values(reply: str, address: str, name: str) -> dict[str, str]:
+    street, city, state, zip_code = parse_mailing_address(address)
+    primary, continuation = dgs_records_requested()
+    checked = "/On"
+    return {
+        "SUBMITTED TO AGENCY NAME": (
+            "Pennsylvania Department of General Services (Attn: AORO)"
+        ),
+        "Full Name": name,
+        "Email_3": reply,
+        "Mailing Address": street,
+        "City": city,
+        "State": state,
+        "Zip": zip_code,
+        "Records Requested1": primary,
+        "Records Requested2": continuation,
+        "Email": checked,
+        "Email_2": checked,
+        "Email_4": checked,
+        "Yes electronic": checked,
+        "No": checked,
+        "100 or": checked,
+        "By checking this box I affirm that my full name and contact information is true and correct": checked,
+    }
+
+
+def fill_dgs_rtkl_form(blank: bytes, reply: str, address: str, name: str) -> bytes:
+    reader = PdfReader(io.BytesIO(blank))
+    writer = PdfWriter()
+    writer.append(reader)
+    values = dgs_form_values(reply, address, name)
+    for page in writer.pages:
+        writer.update_page_form_field_values(page, values, auto_regenerate=True)
+    if "/AcroForm" in writer._root_object:
+        writer._root_object["/AcroForm"].update(
+            {NameObject("/NeedAppearances"): BooleanObject(True)}
+        )
+    out = io.BytesIO()
+    writer.write(out)
+    filled = out.getvalue()
+    if not filled.startswith(b"%PDF"):
+        raise RuntimeError("filled DGS form is not a PDF")
+    return filled
+
+
+def build_dgs_form_attachment(reply: str, address: str, name: str) -> tuple[bytes | None, str]:
+    """Fetch and fill the DGS standard form.
+
+    Returns (pdf_bytes or None, status) where status is 'filled', 'blank',
+    or 'unavailable'. 'blank' means the official form is attached unfilled
+    and the email should include the paste block.
+    """
+    try:
+        blank = fetch_dgs_rtkl_form()
+    except Exception:
+        return None, "unavailable"
+    try:
+        return fill_dgs_rtkl_form(blank, reply, address, name), "filled"
+    except Exception:
+        return blank, "blank"
+
+
+def message_plain_text(raw: bytes | EmailMessage) -> str:
+    msg = raw if isinstance(raw, EmailMessage) else BytesParser(policy=email_policy).parsebytes(raw)
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_type() == "text/plain" and not part.get_filename():
+                return part.get_content()
+    return msg.get_content()
 
 
 def load_contacts(path: Path = CONTACTS) -> list[dict]:
@@ -70,13 +532,22 @@ def greeting_line(row: dict) -> str:
 
 
 def sender_fields() -> tuple[str, str, str]:
+    """Reply-to, postal address, and name. Address and reply-to are required."""
     reply = os.environ.get("SALTTRACKER_FOLLOWUP_REPLY_TO", "").strip()
+    address = os.environ.get("SALTTRACKER_FOLLOWUP_ADDRESS", "").strip()
     name = os.environ.get("SALTTRACKER_FOLLOWUP_NAME", "").strip() or "Lewis Eastwood"
-    org = os.environ.get(
-        "SALTTRACKER_FOLLOWUP_ORG",
-        "Academic research — Road salt contract tracker",
-    ).strip()
-    return reply, name, org
+    missing = []
+    if not reply or reply.upper().startswith("SET "):
+        missing.append("SALTTRACKER_FOLLOWUP_REPLY_TO")
+    if not address or address.upper().startswith("SET "):
+        missing.append("SALTTRACKER_FOLLOWUP_ADDRESS")
+    if missing:
+        raise SenderConfigError(
+            "Refusing to generate drafts: set "
+            + " and ".join(missing)
+            + ". The RTKL requires a name and a verifiable postal address, not a reply-to alone."
+        )
+    return reply, address, name
 
 
 def aoro_email(row: dict) -> str | None:
@@ -89,10 +560,13 @@ def aoro_email(row: dict) -> str | None:
     return email
 
 
+def _stamp_headers(msg: EmailMessage, stamp: str) -> None:
+    msg["Date"] = formatdate(localtime=True)
+    msg["X-SaltTracker-Draft-Stamp"] = stamp
+
+
 def draft_message(row: dict, stamp: str) -> EmailMessage:
-    reply, name, org = sender_fields()
-    if not reply:
-        reply = os.environ.get("SALTTRACKER_ALERT_EMAIL", "").strip() or "SET SALTTRACKER_FOLLOWUP_REPLY_TO"
+    reply, address, name = sender_fields()
     msg = EmailMessage()
     msg["Subject"] = SUBJECT
     msg["From"] = os.environ.get("SALTTRACKER_SMTP_FROM", reply)
@@ -101,15 +575,46 @@ def draft_message(row: dict, stamp: str) -> EmailMessage:
         msg["To"] = dest
     else:
         msg["To"] = "UNVERIFIED-DO-NOT-SEND"
-    msg["Date"] = stamp
+    _stamp_headers(msg, stamp)
     msg["X-SaltTracker-County"] = row["county"]
     msg["X-SaltTracker-AORO-Status"] = row.get("aoro_status") or ""
-    msg.set_content(BODY.format(
+    msg.set_content(COUNTY_BODY.format(
         greeting=greeting_line(row),
-        reply_to=reply,
+        county=row.get("county") or "the",
+        contract_no=CONTRACT_NO,
+        season=SEASON,
+        contract_term=CONTRACT_TERM,
         sender_name=name,
-        sender_org=org,
+        sender_address=address,
+        reply_to=reply,
     ))
+    return msg
+
+
+def draft_dgs_message(stamp: str) -> EmailMessage:
+    reply, address, name = sender_fields()
+    msg = EmailMessage()
+    msg["Subject"] = DGS_SUBJECT
+    msg["From"] = os.environ.get("SALTTRACKER_SMTP_FROM", reply)
+    msg["To"] = DGS_AORO["email"]
+    _stamp_headers(msg, stamp)
+    msg["X-SaltTracker-Agency"] = "DGS"
+    msg["X-SaltTracker-AORO"] = DGS_AORO["officer"]
+    body = dgs_letter_text(reply, address, name)
+    pdf_bytes, form_status = build_dgs_form_attachment(reply, address, name)
+    if form_status != "filled":
+        body = body.rstrip() + "\n\n" + dgs_form_paste_block(reply, address, name)
+        msg["X-SaltTracker-DGS-Form"] = form_status
+    else:
+        msg["X-SaltTracker-DGS-Form"] = "filled"
+    msg.set_content(body)
+    if pdf_bytes:
+        msg.add_attachment(
+            pdf_bytes,
+            maintype="application",
+            subtype="pdf",
+            filename=DGS_FORM_FILENAME,
+        )
     return msg
 
 
@@ -130,14 +635,20 @@ def write_workbook(rows: list[dict], path: Path) -> None:
         ws.column_dimensions[col[0].column_letter].width = min(48, max(14, len(str(col[0].value or "")) + 4))
     note = wb.create_sheet("How to use")
     note["A1"] = (
-        "Pilot: five Pennsylvania counties by FY2027 contracted tons. "
-        "Primary recipient is the county Agency Open Records Officer (RTKL), "
-        "verified 10 Sep 2026 from the county Right-to-Know page. Purchasing "
-        "contacts are secondary only. Washington AORO email is UNVERIFIED "
-        "(not published; mail the Chief Clerk — the DocuSign link is unconfirmed). "
-        "Default: python scripts/pa_followup.py "
-        "writes this workbook and .eml drafts. Sending requires --send and "
-        "SALTTRACKER_FOLLOWUP_CONFIRM=YES and skips UNVERIFIED rows."
+        "Pilot: five Pennsylvania counties. County letters ask only for that "
+        "county's own COSTARS line under 6100065611 (FY2027) and any off-contract "
+        "county buy — not municipal purchases. The DGS letter asks for weekly "
+        "shipment reports under the same contract and goes to the DGS AORO "
+        "(DGS-RTK@pa.gov), not the commodity specialist. "
+        "Drafts require SALTTRACKER_FOLLOWUP_REPLY_TO and "
+        "SALTTRACKER_FOLLOWUP_ADDRESS. Washington AORO email is UNVERIFIED "
+        "(mail the Chief Clerk — the DocuSign link is unconfirmed). "
+        "The DGS row is for the response clock only: five business days from "
+        "AORO receipt (received_on), with a 30-day extension likely. Fill "
+        "received_on when the officer has the request; responded_on when a "
+        "written response arrives. Run --clock to compute due dates. Do not "
+        "put a home address in this workbook. "
+        "Sending requires --send and SALTTRACKER_FOLLOWUP_CONFIRM=YES."
     )
     note["A1"].alignment = Alignment(wrap_text=True, vertical="top")
     note.row_dimensions[1].height = 80
@@ -147,9 +658,12 @@ def write_workbook(rows: list[dict], path: Path) -> None:
 
 
 def write_drafts(rows: list[dict], stamp: str) -> list[Path]:
+    sender_fields()
     DRAFTS.mkdir(parents=True, exist_ok=True)
     written = []
     for row in rows:
+        if is_dgs_row(row):
+            continue
         if not aoro_email(row):
             continue
         msg = draft_message(row, stamp)
@@ -157,6 +671,9 @@ def write_drafts(rows: list[dict], stamp: str) -> list[Path]:
         path = DRAFTS / f"{stamp[:10]}_{slug}.eml"
         path.write_bytes(bytes(msg))
         written.append(path)
+    dgs_path = DRAFTS / f"{stamp[:10]}_dgs.eml"
+    dgs_path.write_bytes(bytes(draft_dgs_message(stamp)))
+    written.append(dgs_path)
     return written
 
 
@@ -175,80 +692,49 @@ def send_drafts(rows: list[dict], stamp: str) -> list[str]:
         if user:
             smtp.login(user, password)
         for row in rows:
+            if is_dgs_row(row):
+                continue
             if not aoro_email(row):
                 notes.append(f"skipped {row['county']}: AORO email UNVERIFIED")
                 continue
             msg = draft_message(row, stamp)
             smtp.send_message(msg)
             notes.append(f"sent {row['county']} -> {aoro_email(row)}")
-    return notes
-
-
-def poll_inbox() -> list[str]:
-    """Forward unseen replies that look like follow-up responses."""
-    host = os.environ.get("SALTTRACKER_IMAP_HOST", "").strip()
-    user = os.environ.get("SALTTRACKER_IMAP_USER", "").strip()
-    password = os.environ.get("SALTTRACKER_IMAP_PASS", "").strip()
-    dest = os.environ.get("SALTTRACKER_ALERT_EMAIL", "").strip()
-    smtp_host = os.environ.get("SALTTRACKER_SMTP_HOST", "").strip()
-    if not (host and user and password and dest and smtp_host):
-        raise RuntimeError("IMAP poll needs IMAP_* credentials, ALERT_EMAIL, and SMTP_HOST")
-    mailbox = os.environ.get("SALTTRACKER_IMAP_MAILBOX", "INBOX")
-    notes = []
-    with imaplib.IMAP4_SSL(host) as imap:
-        imap.login(user, password)
-        imap.select(mailbox)
-        typ, data = imap.search(None, "UNSEEN")
-        if typ != "OK":
-            return ["imap search failed"]
-        ids = data[0].split()
-        for msg_id in ids:
-            typ, payload = imap.fetch(msg_id, "(RFC822)")
-            if typ != "OK" or not payload or not payload[0]:
-                continue
-            raw = payload[0][1]
-            parsed = BytesParser(policy=email_policy).parsebytes(raw)
-            subject = parsed.get("Subject", "")
-            if "road salt" not in subject.lower() and "right-to-know" not in subject.lower():
-                continue
-            fwd = EmailMessage()
-            fwd["Subject"] = f"Fwd (PA follow-up): {subject}"
-            fwd["From"] = os.environ.get("SALTTRACKER_SMTP_FROM", dest)
-            fwd["To"] = dest
-            fwd.set_content(
-                f"Forwarded county reply.\n\nFrom: {parsed.get('From')}\n"
-                f"Subject: {subject}\n\n{parsed.get_content()}"
-            )
-            port = int(os.environ.get("SALTTRACKER_SMTP_PORT", "587"))
-            with smtplib.SMTP(smtp_host, port, timeout=20) as smtp:
-                smtp.starttls()
-                smtp_user = os.environ.get("SALTTRACKER_SMTP_USER", "")
-                smtp_pass = os.environ.get("SALTTRACKER_SMTP_PASS", "")
-                if smtp_user:
-                    smtp.login(smtp_user, smtp_pass)
-                smtp.send_message(fwd)
-            notes.append(f"forwarded {subject}")
+        dgs_msg = draft_dgs_message(stamp)
+        smtp.send_message(dgs_msg)
+        notes.append(f"sent DGS -> {DGS_AORO['email']}")
     return notes
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--clock", action="store_true",
+                        help="Print the RTKL response/appeal clock from contacts.csv; does not send or write drafts")
     parser.add_argument("--send", action="store_true",
                         help="Send drafts via SMTP (also requires SALTTRACKER_FOLLOWUP_CONFIRM=YES)")
-    parser.add_argument("--poll-inbox", action="store_true",
-                        help="Forward unseen IMAP replies to SALTTRACKER_ALERT_EMAIL")
     args = parser.parse_args(argv)
 
+    load_local_env()
     rows = load_contacts()
     if not rows:
         print("No contacts in", CONTACTS, file=sys.stderr)
         return 1
+
+    if args.clock:
+        sys.stdout.write(format_clock_report(rows, dt.date.today()))
+        return 0
+
     stamp = dt.datetime.now().replace(microsecond=0).isoformat()
     OUT.mkdir(parents=True, exist_ok=True)
     xlsx = OUT / "PA_procurement_contacts.xlsx"
     write_workbook(rows, xlsx)
-    drafts = write_drafts(rows, stamp)
     print(f"Wrote {xlsx}")
+    try:
+        drafts = write_drafts(rows, stamp)
+    except SenderConfigError as exc:
+        print(str(exc), file=sys.stderr)
+        print("No mail sent (drafts not generated).")
+        return 1
     print(f"Wrote {len(drafts)} drafts under {DRAFTS}")
     for p in drafts:
         print(" ", p.name)
@@ -258,10 +744,6 @@ def main(argv: list[str] | None = None) -> int:
             print(line)
     else:
         print("No mail sent (draft only). Pass --send only after reviewing the .eml files.")
-
-    if args.poll_inbox:
-        for line in poll_inbox():
-            print(line)
     return 0
 
 
