@@ -151,3 +151,12 @@ def test_state_share_map_uses_latest_year_and_sums_to_one():
     }
     for loc, z in zip(locs, shares):
         assert abs(z - expected[str(loc)]) < 1e-9
+    title = str(fig.layout.title.text or "")
+    assert "unlike" in title.lower()
+    hover = next(tr.hovertemplate for tr in fig.data if tr.type == "choropleth")
+    assert "published volume" in hover
+
+    pa = charts.state_share_map(state[state["state"] == "PA"])
+    assert "estimated" in str(pa.layout.title.text or "").lower()
+    mi = charts.state_share_map(state[state["state"] == "MI"])
+    assert "contracted tons" in str(mi.layout.title.text or "").lower()

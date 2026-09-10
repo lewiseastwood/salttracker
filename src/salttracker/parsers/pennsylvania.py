@@ -9,9 +9,9 @@ contains one pricing block per supplier:
     Allegheny     99,740                $91.44             $86.87
     ...
 
-"Cumulative Estimate" is PennDOT's contracted tonnage estimate for that county
-and "County Bid Price" is the awarded delivered price per ton, which together
-give contracted volume and price at county grain.
+"Cumulative Estimate" is the county-lot estimate of requirements committed before
+the season (PennDOT + COSTARS + non-PennDOT agencies), not tons purchased, and
+"County Bid Price" is the awarded delivered price per ton.
 
 Packets also carry an "Attachment A" renewal table that restates the prior
 season's price beside the new one:
@@ -228,4 +228,68 @@ def parse(path: str, source_doc: str | None = None) -> list[Row]:
                         contract_no=table_cno, record_type="award",
                         page=pno, source_doc=doc,
                     ))
+    return out
+
+
+_PA_COUNTY_CELL = re.compile(r"^PA-([A-Za-z]+)$")
+_MEMBER_SKIP = re.compile(
+    r"^(organization name|member id|state-county|participants?:|stockpile)\b",
+    re.I,
+)
+
+
+def _member_from_cells(cells: list[str], fy: int | None, source_doc: str,
+                        page: int) -> dict | None:
+    """Read one Participating Members table row. Skip mashed/header rows."""
+    if not fy:
+        return None
+    county_idx = next(
+        (i for i, c in enumerate(cells) if _PA_COUNTY_CELL.fullmatch(c)), None)
+    if county_idx is None or county_idx == 0:
+        return None
+    name = cells[0]
+    if not name or _MEMBER_SKIP.match(name):
+        return None
+    county = clean_county(_PA_COUNTY_CELL.fullmatch(cells[county_idx]).group(1))
+    if not county:
+        return None
+    nums = [to_number(c) for c in cells[county_idx + 1:]]
+    nums = [n for n in nums if n is not None]
+    if not nums:
+        return None
+    category = None
+    if county_idx >= 2 and cells[1] and not re.fullmatch(r"\d+", cells[1]):
+        category = cells[1]
+    return {
+        "fiscal_year": fy,
+        "county": county,
+        "purchasing_entity": name,
+        "member_category": category,
+        "contracted_tons": nums[-1],
+        "source_doc": source_doc,
+        "source_page": page,
+    }
+
+
+def parse_members(path: str, source_doc: str | None = None) -> list[dict]:
+    """Named COSTARS members from the packet roster. Award parsing stops before this."""
+    doc = source_doc or path.split("/")[-1]
+    out: list[dict] = []
+    with pdfplumber.open(path) as pdf:
+        first = (pdf.pages[0].extract_text() or "")
+        doc_fy = season_to_fy(first) or season_to_fy(doc)
+        started = False
+        for pno, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ""
+            if MEMBER_SECTION_RE.search(text):
+                started = True
+            if not started:
+                continue
+            page_fy = season_to_fy(text) or doc_fy
+            for table in page.extract_tables() or []:
+                for raw in table or []:
+                    cells = [_norm(c) for c in raw]
+                    row = _member_from_cells(cells, page_fy, doc, pno)
+                    if row:
+                        out.append(row)
     return out

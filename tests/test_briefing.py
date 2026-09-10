@@ -154,3 +154,11 @@ def test_source_documents_catalog_has_urls():
     fy27 = catalog[catalog["source_doc"] == "PA_FY2027_COSTARS_6100065611.pdf"].iloc[0]
     assert fy27["fiscal_year_from"] == 2027
     assert isinstance(fy27["source_url"], str) and fy27["source_url"].startswith("http")
+
+
+def test_volume_label_depends_on_which_states_are_in_view():
+    assert briefing.volume_label(pd.DataFrame({"state": ["PA"]})) == "Estimated requirements"
+    assert briefing.volume_label(pd.DataFrame({"state": ["MI"]})) == "Contracted tons"
+    assert briefing.volume_label(pd.DataFrame({"state": ["MI", "PA"]})) == "Published tons"
+    assert briefing.PA_VOLUME_NOTE.startswith("Pennsylvania tons are estimated")
+    assert "unlike" in briefing.UNLIKE_SHARE_NOTE

@@ -4,8 +4,10 @@ Definitions used throughout (per road-salt industry convention):
 
 * Fiscal year runs Oct 1 - Sep 30 and is named for the calendar year it ends in,
   so the 2025/2026 winter season is FY2026.
-* Contracted volume is the tonnage a supplier is awarded/committed to under the
-  contract, summed across all programs (Michigan early fill + seasonal back-up).
+* Michigan contracted volume is drop-point award tons (MDOT garages and named
+  MiDEAL members). Pennsylvania volume is a county-lot *estimate of requirements*
+  committed before the season (PennDOT + COSTARS members + non-PennDOT agencies),
+  not tons purchased or delivered.
 * Contracted price is the weighted-average price per ton, computed as total
   contract revenue divided by total contracted volume. This is verified against
   Michigan's own stated schedule totals; note it differs from the simple
@@ -43,9 +45,14 @@ RAW_COLUMNS = [
     "program", "channel", "fill_type", "delivery_terms", "price_unit",
     "contracted_tons", "price_per_ton", "extended_value",
     "price_costars", "contract_no", "record_type", "measure_basis", "tons_basis",
+    "penndot_tons", "costars_tons", "agency_tons", "purchasing_entity",
     # Provenance: enough to re-find and re-verify any single row at its source.
     "source_doc", "source_page", "source_url", "source_sha256", "retrieved_at",
 ]
+
+LOT_RECORD_TYPES = ("award", "price_only", "volume_only")
+MEMBER_RECORD_TYPE = "costars_member"
+CHANNEL_COSTARS = "COSTARS"
 
 # What a row actually asserts. Kept separate from record_type so that a consumer
 # can filter on "rows with both measures" without knowing parser vocabulary.
@@ -166,13 +173,14 @@ def parse_pennsylvania_docs(paths: list[str]) -> tuple[pd.DataFrame, list[dict]]
         for r in parsed:
             rows.append(dict(
                 state="PA", fiscal_year=r.fy, vendor=r.vendor, county=r.county,
-                program="Statewide Contract", channel="PennDOT / COSTARS",
+                program="Statewide Contract", channel=None,
                 contracted_tons=r.tons, price_per_ton=r.price,
                 extended_value=(r.tons * r.price) if (r.tons and r.price) else None,
                 price_costars=r.price_costars, contract_no=r.contract_no,
                 record_type=r.record_type, source_doc=r.source_doc,
                 source_page=r.page, tons_basis="printed", change_notice=None,
-                entity=None,
+                entity=None, purchasing_entity=None,
+                penndot_tons=None, costars_tons=None, agency_tons=None,
             ))
     return pd.DataFrame(rows), yields
 
@@ -219,27 +227,30 @@ def resolve_pa_awards(df: pd.DataFrame) -> pd.DataFrame:
     if pa.empty:
         return df
     rest = df[~df["state"].eq("PA")]
+    members = pa[pa["record_type"].eq(MEMBER_RECORD_TYPE)]
+    lots = pa[pa["record_type"].ne(MEMBER_RECORD_TYPE)]
 
-    doc = pa["source_doc"].fillna("").str.lower()
+    doc = lots["source_doc"].fillna("").str.lower()
     # Prefer a season packet over a change notice, and a priced row over a bare one.
-    pa["_rank"] = (doc.str.contains("costars").astype(int) * 4
-                   + pa["price_per_ton"].notna().astype(int) * 2
-                   + pa["contracted_tons"].notna().astype(int))
-    pa = pa.sort_values("_rank", ascending=False)
-    pa = pa.drop_duplicates(subset=["fiscal_year", "county"]).drop(columns="_rank")
-    return pd.concat([pa, rest], ignore_index=True)
+    lots["_rank"] = (doc.str.contains("costars").astype(int) * 4
+                     + lots["price_per_ton"].notna().astype(int) * 2
+                     + lots["contracted_tons"].notna().astype(int))
+    lots = lots.sort_values("_rank", ascending=False)
+    lots = lots.drop_duplicates(subset=["fiscal_year", "county"]).drop(columns="_rank")
+    return pd.concat([lots, members, rest], ignore_index=True)
 
 
 def attach_pa_volume(df: pd.DataFrame, estimates: pd.DataFrame) -> pd.DataFrame:
-    """Give Pennsylvania rows a tonnage using PennDOT's county estimates.
+    """Give Pennsylvania lot rows tonnage from the estimates attachment.
 
-    Pennsylvania awards a price per county but publishes tonnage separately, so
-    a county's estimated demand is assigned to whichever supplier holds that
-    county for the season. That makes PA volume and weighted price comparable to
-    Michigan, where both are printed on one schedule.
+    Pennsylvania awards a price per county lot but publishes tonnage separately
+    as estimated requirements (PennDOT + COSTARS + non-PennDOT agencies), not
+    purchased or delivered tons. The cumulative is assigned to whichever supplier
+    holds that county for the season. Split columns stay on the lot so a county
+    can be broken out by channel without inventing a buyer.
 
     Seasons whose counties were never priced in a document we hold still carry a
-    statewide tonnage, so those are kept as unattributed volume rather than
+    statewide estimate, so those are kept as unattributed volume rather than
     being dropped.
     """
     if estimates.empty:
@@ -248,29 +259,34 @@ def attach_pa_volume(df: pd.DataFrame, estimates: pd.DataFrame) -> pd.DataFrame:
     tons = (estimates.set_index(["fiscal_year", "county"])["cumulative_tons"]
                      .rename("_est_tons"))
     out = df.copy()
-    is_pa = out["state"].eq("PA")
-    if is_pa.any():
-        keys = pd.MultiIndex.from_arrays([out.loc[is_pa, "fiscal_year"],
-                                          out.loc[is_pa, "county"]])
+    is_lot = out["state"].eq("PA") & out["record_type"].isin(LOT_RECORD_TYPES)
+    if is_lot.any():
+        keys = pd.MultiIndex.from_arrays([out.loc[is_lot, "fiscal_year"],
+                                          out.loc[is_lot, "county"]])
         matched = tons.reindex(keys).to_numpy()
-        # The estimate is preferred over any tonnage printed in the season
-        # packet. Packet tonnage counts only the COSTARS members who registered,
-        # while the estimate is the county's whole contracted requirement, so
-        # mixing the two would make the year-on-year series inconsistent.
-        current = out.loc[is_pa, "contracted_tons"].to_numpy(dtype=float)
+        current = out.loc[is_lot, "contracted_tons"].to_numpy(dtype=float)
         use_est = ~pd.isna(matched)
-        out.loc[is_pa, "contracted_tons"] = np.where(use_est, matched, current)
-        priced = out.loc[is_pa, "price_per_ton"].notna().to_numpy()
-        rt = out.loc[is_pa, "record_type"].to_numpy(dtype=object).copy()
-        basis = out.loc[is_pa, "tons_basis"].to_numpy(dtype=object).copy()
+        out.loc[is_lot, "contracted_tons"] = np.where(use_est, matched, current)
+        priced = out.loc[is_lot, "price_per_ton"].notna().to_numpy()
+        rt = out.loc[is_lot, "record_type"].to_numpy(dtype=object).copy()
+        basis = out.loc[is_lot, "tons_basis"].to_numpy(dtype=object).copy()
         rt[use_est & priced] = "award"
-        basis[use_est] = "penndot_estimate"
-        out.loc[is_pa, "record_type"] = rt
-        out.loc[is_pa, "tons_basis"] = basis
-        out.loc[is_pa, "extended_value"] = (out.loc[is_pa, "contracted_tons"]
-                                            * out.loc[is_pa, "price_per_ton"])
+        basis[use_est] = "committed_estimate"
+        out.loc[is_lot, "record_type"] = rt
+        out.loc[is_lot, "tons_basis"] = basis
+        out.loc[is_lot, "extended_value"] = (out.loc[is_lot, "contracted_tons"]
+                                             * out.loc[is_lot, "price_per_ton"])
+        est_idx = estimates.set_index(["fiscal_year", "county"])
+        for col in ("penndot_tons", "costars_tons", "agency_tons"):
+            if col not in est_idx.columns:
+                continue
+            if col not in out.columns:
+                out[col] = None
+            out.loc[is_lot, col] = est_idx[col].reindex(keys).to_numpy()
 
-    covered = set(out.loc[out["state"].eq("PA") & out["contracted_tons"].notna(), "fiscal_year"])
+    covered = set(out.loc[out["state"].eq("PA")
+                           & out["record_type"].isin(LOT_RECORD_TYPES)
+                           & out["contracted_tons"].notna(), "fiscal_year"])
     extra = estimates[~estimates["fiscal_year"].isin(covered)]
     if extra.empty:
         return out
@@ -280,16 +296,106 @@ def attach_pa_volume(df: pd.DataFrame, estimates: pd.DataFrame) -> pd.DataFrame:
         "vendor": UNATTRIBUTED,
         "county": extra["county"].to_numpy(),
         "program": "Statewide Contract",
-        "channel": "PennDOT / COSTARS",
+        "channel": None,
         "contracted_tons": extra["cumulative_tons"].to_numpy(),
         "price_per_ton": None,
         "extended_value": None,
         "record_type": "volume_only",
         "source_doc": extra["source_doc"].to_numpy(),
         "source_page": extra["source_page"].to_numpy(),
-        "tons_basis": "penndot_estimate",
+        "tons_basis": "committed_estimate",
+        "penndot_tons": extra["penndot_tons"].to_numpy() if "penndot_tons" in extra else None,
+        "costars_tons": extra["costars_tons"].to_numpy() if "costars_tons" in extra else None,
+        "agency_tons": extra["agency_tons"].to_numpy() if "agency_tons" in extra else None,
+        "purchasing_entity": None,
+        "entity": None,
     })
     return pd.concat([out, unattributed], ignore_index=True)
+
+
+def parse_pa_members(packet_paths: list[str], estimate_paths: list[str]) -> pd.DataFrame:
+    """Named COSTARS buyers from packet rosters and estimates LPPU tables."""
+    frames = []
+    for path in packet_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            rows = pa_parser.parse_members(path)
+        except Exception:
+            continue
+        if rows:
+            frames.append(pd.DataFrame(rows))
+    for path in estimate_paths:
+        if not os.path.exists(path):
+            continue
+        try:
+            frame = pa_est_parser.parse_members(path)
+        except Exception:
+            continue
+        if not frame.empty:
+            frames.append(frame)
+    if not frames:
+        return pd.DataFrame()
+    combined = pd.concat(frames, ignore_index=True)
+    if "member_category" not in combined.columns:
+        combined["member_category"] = None
+    combined["_has_cat"] = combined["member_category"].notna()
+    combined = combined.sort_values("_has_cat", ascending=False)
+    return (combined.drop_duplicates(subset=["fiscal_year", "county", "purchasing_entity"])
+                    .drop(columns="_has_cat").reset_index(drop=True))
+
+
+def attach_pa_members(df: pd.DataFrame, members: pd.DataFrame) -> pd.DataFrame:
+    """Append COSTARS roster rows. Not rolled into state/vendor totals."""
+    if members is None or members.empty:
+        return df
+    lots = df[df["state"].eq("PA") & df["record_type"].isin(LOT_RECORD_TYPES)]
+    vendor_map = {}
+    price_map = {}
+    cno_map = {}
+    if not lots.empty:
+        for _, row in lots.iterrows():
+            key = (int(row["fiscal_year"]), str(row["county"]))
+            if pd.notna(row.get("vendor")):
+                vendor_map[key] = row["vendor"]
+            if pd.notna(row.get("price_per_ton")):
+                price_map[key] = row["price_per_ton"]
+            if pd.notna(row.get("contract_no")):
+                cno_map[key] = row["contract_no"]
+
+    extra = []
+    for _, m in members.iterrows():
+        fy = int(m["fiscal_year"])
+        county = str(m["county"])
+        key = (fy, county)
+        tons = m.get("contracted_tons")
+        price = price_map.get(key)
+        extra.append({
+            "state": "PA",
+            "fiscal_year": fy,
+            "vendor": vendor_map.get(key) or UNATTRIBUTED,
+            "county": county,
+            "program": "Statewide Contract",
+            "channel": CHANNEL_COSTARS,
+            "contracted_tons": tons,
+            "price_per_ton": price,
+            "extended_value": (tons * price) if (pd.notna(tons) and pd.notna(price)) else None,
+            "price_costars": price,
+            "contract_no": cno_map.get(key),
+            "record_type": MEMBER_RECORD_TYPE,
+            "source_doc": m.get("source_doc"),
+            "source_page": m.get("source_page"),
+            "tons_basis": "costars_member_roster",
+            "purchasing_entity": m.get("purchasing_entity"),
+            "entity": m.get("purchasing_entity"),
+            "penndot_tons": None,
+            "costars_tons": None,
+            "agency_tons": None,
+            "change_notice": None,
+        })
+    if not extra:
+        return df
+    return pd.concat([df, pd.DataFrame(extra)], ignore_index=True)
 
 
 # --------------------------------------------------------------------------
@@ -466,7 +572,7 @@ def aggregate(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Roll up to state x FY x vendor and state x FY, using weighted pricing."""
     # Seasons where only one of price or tonnage was ever published still belong
     # in the rollup; the missing measure is reported as blank rather than zero.
-    award = raw[raw["record_type"].isin(["award", "volume_only", "price_only"])
+    award = raw[raw["record_type"].isin(LOT_RECORD_TYPES)
                 & (raw["contracted_tons"].notna() | raw["price_per_ton"].notna())]
     if award.empty:
         return pd.DataFrame(), pd.DataFrame()
@@ -551,6 +657,8 @@ def build(mi_docs: dict[str, str | None], pa_docs: list[str],
     combined = dedupe_schedules(combined)
     combined = resolve_pa_awards(combined)
     combined = attach_pa_volume(combined, parse_pa_estimates(pa_estimate_docs or []))
+    combined = attach_pa_members(
+        combined, parse_pa_members(pa_docs, pa_estimate_docs or []))
     combined = annotate_semantics(combined)
     combined = attach_provenance(combined, manifest_path)
     raw = normalize(combined)

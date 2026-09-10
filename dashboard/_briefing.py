@@ -10,6 +10,27 @@ import pandas as pd
 
 from _theme import STATE_NAMES
 
+PA_VOLUME_NOTE = (
+    "Pennsylvania tons are estimated requirements committed before the season, "
+    "not purchased or delivered."
+)
+UNLIKE_SHARE_NOTE = (
+    "The two-state share compares unlike quantities: Pennsylvania is estimated "
+    "requirements; Michigan is contracted drop-point awards."
+)
+
+
+def volume_label(df: pd.DataFrame) -> str:
+    """What the tons column is, given which states are in view."""
+    if df is None or df.empty or "state" not in df.columns:
+        return "Published tons"
+    states = {str(s) for s in df["state"].dropna().unique()}
+    if states == {"PA"}:
+        return "Estimated requirements"
+    if states == {"MI"}:
+        return "Contracted tons"
+    return "Published tons"
+
 # Same window as scripts/refresh.py: daily in June–August, Mondays otherwise.
 PEAK_MONTHS = (6, 7, 8)
 STALE_PEAK = timedelta(days=3)

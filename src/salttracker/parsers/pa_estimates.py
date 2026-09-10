@@ -71,7 +71,10 @@ def _split_parts(nums: list[float]) -> tuple[float | None, float | None, float |
 
 def _fy_from_text(text: str) -> int | None:
     m = SEASON_RE.search(text or "")
-    return season_to_fy(m.group(0)) if m else None
+    if m:
+        return season_to_fy(m.group(0))
+    m2 = re.search(r"FY\s*(20\d{2})", text or "", re.I)
+    return int(m2.group(1)) if m2 else None
 
 
 def _row_from_numbers(county: str, nums: list[float], fy: int, source: str,
@@ -195,3 +198,111 @@ def parse(path: str) -> pd.DataFrame:
     frame = frame.drop_duplicates(subset=["fiscal_year", "county"]).reset_index(drop=True)
     frame.attrs["stated_total"] = stated_total
     return frame
+
+
+_PA_COUNTY_CELL = re.compile(r"^PA-([A-Za-z]+)$")
+_MEMBER_SKIP = re.compile(
+    r"^(organization name|member id|state-county|participants?:|stockpile|county)\b",
+    re.I,
+)
+_AGENCY_SECTION_RE = re.compile(r"Non-PennDOT State Agency", re.I)
+_COSTARS_MEMBER_RE = re.compile(
+    r"(COSTARS\s+20\d{2}[-–]\d{2}\s+Salt Estimates|Organization Name)", re.I)
+
+
+def _member_from_cells(cells: list[str], fy: int | None, source: str,
+                       page: int | None) -> dict | None:
+    if not fy:
+        return None
+    county_idx = next(
+        (i for i, c in enumerate(cells) if _PA_COUNTY_CELL.fullmatch(c)), None)
+    county = None
+    name_idx = 0
+    if county_idx is not None and county_idx > 0:
+        county = clean_county(_PA_COUNTY_CELL.fullmatch(cells[county_idx]).group(1))
+        name = cells[0]
+        nums = [to_number(c) for c in cells[county_idx + 1:]]
+        category = None
+        if county_idx >= 2 and cells[1] and not re.fullmatch(r"\d+", cells[1]):
+            category = cells[1]
+    else:
+        # LPPU-style: County | Organization Name | ... | Total Tons
+        idx = next((i for i, c in enumerate(cells) if _norm_county(c)), None)
+        if idx is None:
+            return None
+        county = clean_county(str(cells[idx]).title())
+        if idx + 1 >= len(cells):
+            return None
+        name = cells[idx + 1]
+        nums = [to_number(c) for c in cells[idx + 2:]]
+        category = None
+    nums = [n for n in nums if n is not None]
+    if not county or not name or _MEMBER_SKIP.match(name) or not nums:
+        return None
+    if _norm_county(name):
+        return None
+    return {
+        "fiscal_year": fy,
+        "county": county,
+        "purchasing_entity": name,
+        "member_category": category,
+        "contracted_tons": nums[-1],
+        "source_doc": os.path.basename(source),
+        "source_page": page,
+    }
+
+
+def parse_members_pdf(path: str) -> pd.DataFrame:
+    """COSTARS member roster from an estimates PDF, when tables keep one row per member."""
+    rows: list[dict] = []
+    fy: int | None = None
+    in_members = False
+    with pdfplumber.open(path) as pdf:
+        for pageno, page in enumerate(pdf.pages, start=1):
+            text = page.extract_text() or ""
+            page_fy = _fy_from_text(text)
+            if page_fy:
+                fy = page_fy
+            if _AGENCY_SECTION_RE.search(text):
+                break
+            if _COSTARS_MEMBER_RE.search(text) and "Organization Name" in (text or ""):
+                in_members = True
+            if not in_members:
+                continue
+            for table in page.extract_tables() or []:
+                for raw in table or []:
+                    cells = [re.sub(r"\s+", " ", str(c or "")).strip() for c in raw]
+                    row = _member_from_cells(cells, fy, path, pageno)
+                    if row:
+                        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def parse_members_xlsx(path: str) -> pd.DataFrame:
+    book = pd.ExcelFile(path)
+    if "LPPU" not in book.sheet_names:
+        return pd.DataFrame()
+    frame = book.parse("LPPU", header=None)
+    blob = " ".join(str(v) for v in frame.head(3).to_numpy().ravel() if pd.notna(v))
+    fy = _fy_from_text(blob) or _fy_from_text(os.path.basename(path))
+    rows: list[dict] = []
+    for _, record in frame.iterrows():
+        cells = [re.sub(r"\s+", " ", str(v)).strip() if pd.notna(v) else ""
+                 for v in record]
+        row = _member_from_cells(cells, fy, path, None)
+        if row:
+            rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def parse_members(path: str) -> pd.DataFrame:
+    """Named COSTARS members from an estimates attachment. Empty when tables are mashed."""
+    if path.lower().endswith((".xlsx", ".xls")):
+        frame = parse_members_xlsx(path)
+    else:
+        frame = parse_members_pdf(path)
+    if frame.empty:
+        return frame
+    return frame.drop_duplicates(
+        subset=["fiscal_year", "county", "purchasing_entity"]
+    ).reset_index(drop=True)

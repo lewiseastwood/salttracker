@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from _theme import INK, LINE, NAVY, PAPER, PRICE_LINE, STATE_COLORS, STATE_NAMES, VENDOR_COLORS, WHITE, style
+from _briefing import volume_label
 
 SHORT_VENDOR = {
     "Riverside Construction Materials": "Riverside",
@@ -259,7 +260,7 @@ def volume_price_comparison(
             go.Bar(
                 x=g["period"], y=tons,
                 marker_color=VENDOR_COLORS.get(vendor, "#4E79A7"),
-                name="Contracted tons",
+                name=volume_label(vendor_df),
                 legendgroup="tons",
                 showlegend=i == 0,
                 hovertemplate="%{x}<br>%{y:,.0f} tons<extra>Volume</extra>",
@@ -336,15 +337,24 @@ _STATE_LABEL_LONLAT = {
 
 
 def state_share_map(state_df: pd.DataFrame) -> go.Figure:
-    """USA choropleth of contracted-ton share for the latest year in view.
+    """USA choropleth of published-volume share for the latest year in view.
 
-    Only Michigan and Pennsylvania are in the tracker, so the map zooms to
-    those two. Share is of the filtered two-state (or one-state) total.
+    Michigan and Pennsylvania are not the same quantity. Combined view is a
+    share of unlike measures; single-state view uses that state's measure.
     """
     g = _latest(state_df)
     fy = int(g["fiscal_year"].max()) if not g.empty else None
     fig = go.Figure()
-    title = f"State share of contracted tons · FY{fy}" if fy else "State share of contracted tons"
+    states = {str(s) for s in g["state"].dropna().unique()} if not g.empty else set()
+    if states == {"MI", "PA"} or len(states) > 1:
+        title = f"Share of published volume (unlike measures) · FY{fy}" if fy else "Share of published volume"
+        hover_noun = "published volume"
+    elif states == {"PA"}:
+        title = f"Share of estimated requirements · FY{fy}" if fy else "Share of estimated requirements"
+        hover_noun = "estimated requirements"
+    else:
+        title = f"Share of contracted tons · FY{fy}" if fy else "Share of contracted tons"
+        hover_noun = "contracted tons"
     if g.empty:
         fig.update_layout(title=title)
         return style(fig, height=420, legend="none")
@@ -364,7 +374,7 @@ def state_share_map(state_df: pd.DataFrame) -> go.Figure:
         zmin=0,
         zmax=1,
         colorbar=dict(
-            title=dict(text="Share of tons", side="right"),
+            title=dict(text="Share", side="right"),
             tickformat=".0%",
             thickness=12,
             len=0.72,
@@ -373,7 +383,7 @@ def state_share_map(state_df: pd.DataFrame) -> go.Figure:
         marker_line_color=WHITE,
         marker_line_width=1.2,
         customdata=custom,
-        hovertemplate="%{customdata[0]}<br>%{customdata[2]:.1%} of contracted tons<br>%{customdata[1]:,.0f} tons<extra></extra>",
+        hovertemplate="%{customdata[0]}<br>%{customdata[2]:.1%} of " + hover_noun + "<br>%{customdata[1]:,.0f} tons<extra></extra>",
         name="",
     ))
     label_lon, label_lat, label_text = [], [], []
@@ -450,12 +460,12 @@ def state_volume_bars(state_df: pd.DataFrame) -> go.Figure:
             cliponaxis=False,
             hovertemplate="%{x}<br>%{y:,.0f} tons<extra></extra>",
         ))
-    fig.update_yaxes(title="Contracted tons", **_ton_ticks(
+    fig.update_yaxes(title=volume_label(state_df), **_ton_ticks(
         pd.to_numeric(g["contracted_tons"], errors="coerce").max() if not g.empty else 1,
         headroom=1.22,
     ))
     fig.update_layout(
-        title=f"Contracted volume · FY{fy}" if fy else "Contracted volume",
+        title=f"{volume_label(g)} · FY{fy}" if fy else volume_label(g),
         margin=dict(l=80, r=24, t=64, b=40),
         showlegend=False,
     )
@@ -571,11 +581,11 @@ def volume_timeseries(state_df: pd.DataFrame, grain: str = "annual") -> go.Figur
             hovertemplate="%{x}<br>%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
     tons = pd.to_numeric(state_df["contracted_tons"], errors="coerce")
-    fig.update_yaxes(title="Contracted tons", **_ton_ticks(tons.max() if len(tons) else 1))
+    fig.update_yaxes(title=volume_label(state_df), **_ton_ticks(tons.max() if len(tons) else 1))
     fig.update_xaxes(**_period_xaxis(periods, grain))
     fig.update_layout(
         barmode="group",
-        title="Contracted volume over time",
+        title=f"{volume_label(state_df)} over time",
     )
     fig = style(fig, height=480)
     fig.update_layout(
@@ -627,7 +637,7 @@ def vendor_volume(vendor_df: pd.DataFrame, state_code: str, grain: str = "annual
             hovertemplate="%{x}<br>%{y:,.0f} tons<extra>%{fullData.name}</extra>",
         ))
     tons = pd.to_numeric(g["contracted_tons"], errors="coerce") if not g.empty else pd.Series(dtype=float)
-    fig.update_yaxes(title="Contracted tons", **_ton_ticks(tons.max() if len(tons) else 1))
+    fig.update_yaxes(title=volume_label(g), **_ton_ticks(tons.max() if len(tons) else 1))
     fig.update_xaxes(**_period_xaxis(periods, grain))
     fig.update_layout(
         barmode="stack",

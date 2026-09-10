@@ -99,6 +99,8 @@ def main() -> None:
             "value": None if pd.isna(row["contract_value"]) else float(row["contract_value"]),
         })
     catalog = briefing.source_documents(raw) if not raw.empty else pd.DataFrame()
+    pa_note = htmlesc(briefing.PA_VOLUME_NOTE)
+    unlike_note = htmlesc(briefing.UNLIKE_SHARE_NOTE)
     doc_rows = []
     for _, row in catalog.iterrows():
         doc_rows.append({
@@ -176,7 +178,7 @@ def main() -> None:
 <body>
 <header>
   <h1>Road salt contract tracker</h1>
-  <p>Michigan and Pennsylvania &nbsp;·&nbsp; {n_docs} source documents &nbsp;·&nbsp; Contracted volume and price from published state awards &nbsp;·&nbsp; Fiscal years run 1 Oct – 30 Sep</p>
+  <p>Michigan and Pennsylvania &nbsp;·&nbsp; {n_docs} source documents &nbsp;·&nbsp; Michigan contracted tons; Pennsylvania estimated requirements &nbsp;·&nbsp; Fiscal years run 1 Oct – 30 Sep</p>
 </header>
 <div class="wrap">
   <div class="filters">
@@ -201,6 +203,9 @@ def main() -> None:
     <div class="watch-line">{htmlesc(watch['headline'])}</div>
     <div class="watch-meta">{htmlesc(watch['checked'])}</div>
   </div>
+
+  <p class="note" data-panel="all">{pa_note} {unlike_note}</p>
+  <p class="note" data-panel="PA">{pa_note}</p>
 
   <div class="card wide" data-panel="all" data-grain="annual">{plots['price_ts_all_annual']}</div>
   <div class="card wide" data-panel="all" data-grain="quarter">{plots['price_ts_all_quarter']}</div>
@@ -240,7 +245,9 @@ def main() -> None:
     <div class="card" data-panel="PA">{plots['sharemap_PA']}</div>
     <div class="card" data-panel="PA">{plots['volbars_PA']}</div>
   </div>
-  <p class="note" data-panel="all">Share of contracted tons in the latest fiscal year. The tracker covers Michigan and Pennsylvania only.</p>
+  <p class="note" data-panel="all">{unlike_note} {pa_note}</p>
+  <p class="note" data-panel="PA">{pa_note} Share of estimated requirements in the latest fiscal year.</p>
+  <p class="note" data-panel="MI">Share of contracted tons in the latest fiscal year.</p>
   <div class="grid3">
     <div class="card" data-panel="all">{plots['bubbles_MI']}</div>
     <div class="card" data-panel="all">{plots['bars_MI']}</div>
@@ -293,18 +300,18 @@ def main() -> None:
   <h2>By supplier</h2>
   <div class="table-wrap">
   <table id="tbl">
-    <thead><tr><th>State</th><th>Fiscal year</th><th>Supplier</th><th>Tons</th><th>Weighted $/t</th><th>Contract value</th><th>Share</th></tr></thead>
+    <thead><tr><th>State</th><th>Fiscal year</th><th>Supplier</th><th class="tons-col">Published tons</th><th>Weighted $/t</th><th>Contract value</th><th>Share</th></tr></thead>
     <tbody></tbody>
   </table>
   </div>
   <h2>By state</h2>
   <div class="table-wrap">
   <table id="tbl-state">
-    <thead><tr><th>State</th><th>Fiscal year</th><th>Tons</th><th>Weighted $/t</th><th>Contract value</th></tr></thead>
+    <thead><tr><th>State</th><th>Fiscal year</th><th class="tons-col">Published tons</th><th>Weighted $/t</th><th>Contract value</th></tr></thead>
     <tbody></tbody>
   </table>
   </div>
-  <p class="note">CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years.</p>
+  <p class="note">{pa_note} {unlike_note} CSV and Excel download the tables as currently filtered by the State dropdown. Weighted price is total contract value divided by priced tonnage. PA FY2022–FY2023 volume is published without a supplier award and is excluded from share. FY2027 is the awarded upcoming winter. Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years.</p>
 </div>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
@@ -321,6 +328,12 @@ function fmtMoney(n) {{ return n == null ? "—" : "$" + n.toLocaleString("en-US
 function fmtValue(n) {{ return n == null ? "—" : "$" + n.toLocaleString("en-US", {{maximumFractionDigits: 0}}); }}
 function fmtShare(n) {{ return n == null ? "—" : (n * 100).toFixed(1) + "%"; }}
 function stateName(code) {{ return code === "MI" ? "Michigan" : "Pennsylvania"; }}
+function tonsLabel() {{
+  const v = sel.value;
+  if (v === "PA") return "Estimated requirements";
+  if (v === "MI") return "Contracted tons";
+  return "Published tons";
+}}
 function grainValue() {{
   const checked = document.querySelector("input[name=grain]:checked");
   return checked ? checked.value : "annual";
@@ -341,6 +354,7 @@ function paint() {{
     const grainOk = !g || g === grain;
     el.style.display = (panelOk && grainOk) ? "" : "none";
   }});
+  document.querySelectorAll("th.tons-col").forEach(el => {{ el.textContent = tonsLabel(); }});
   tbody.innerHTML = "";
   visible(rows).forEach(r => {{
     const tr = document.createElement("tr");
@@ -375,7 +389,7 @@ function saveBlob(name, blob) {{
 }}
 function downloadCsv(kind) {{
   if (kind === "state") {{
-    const header = ["State","Fiscal year","Contracted tons","Weighted $/ton","Contract value"];
+    const header = ["State","Fiscal year",tonsLabel(),"Weighted $/ton","Contract value"];
     const lines = [header.join(",")].concat(visible(stateRows).map(r =>
       [r.state, r.fy, r.tons, r.price, r.value].map(csvEscape).join(",")));
     saveBlob("salt_by_state.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
@@ -388,7 +402,7 @@ function downloadCsv(kind) {{
     saveBlob("salt_source_contracts.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
     return;
   }}
-  const header = ["State","Fiscal year","Supplier","Contracted tons","Weighted $/ton","Contract value","Volume share"];
+  const header = ["State","Fiscal year","Supplier",tonsLabel(),"Weighted $/ton","Contract value","Volume share"];
   const lines = [header.join(",")].concat(visible(rows).map(r =>
     [r.state, r.fy, r.vendor, r.tons, r.price, r.value, r.share].map(csvEscape).join(",")));
   saveBlob("salt_by_supplier.csv", new Blob([lines.join("\\n")], {{type: "text/csv"}}));
@@ -401,11 +415,11 @@ function downloadXlsx() {{
   const wb = XLSX.utils.book_new();
   const sup = visible(rows).map(r => ({{
     "State": r.state, "Fiscal year": r.fy, "Supplier": r.vendor,
-    "Contracted tons": r.tons, "Weighted $/ton": r.price,
+    [tonsLabel()]: r.tons, "Weighted $/ton": r.price,
     "Contract value": r.value, "Volume share": r.share,
   }}));
   const st = visible(stateRows).map(r => ({{
-    "State": r.state, "Fiscal year": r.fy, "Contracted tons": r.tons,
+    "State": r.state, "Fiscal year": r.fy, [tonsLabel()]: r.tons,
     "Weighted $/ton": r.price, "Contract value": r.value,
   }}));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sup), "By supplier");

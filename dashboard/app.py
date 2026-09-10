@@ -161,6 +161,7 @@ def zip_source_files(catalog: pd.DataFrame) -> bytes | None:
 
 
 def supplier_table(df: pd.DataFrame) -> pd.DataFrame:
+    tons_name = briefing.volume_label(df)
     out = df.copy()
     out["state"] = out["state"].map(lambda s: STATE_NAMES.get(s, s))
     out = out.rename(columns={
@@ -168,7 +169,7 @@ def supplier_table(df: pd.DataFrame) -> pd.DataFrame:
         "fiscal_year": "Fiscal year",
         "season": "Season",
         "vendor": "Supplier",
-        "contracted_tons": "Contracted tons",
+        "contracted_tons": tons_name,
         "priced_tons": "Priced tons",
         "weighted_avg_price": "Weighted $/ton",
         "simple_avg_price": "Unweighted $/ton",
@@ -177,7 +178,7 @@ def supplier_table(df: pd.DataFrame) -> pd.DataFrame:
         "n_counties": "Counties",
     })
     cols = [c for c in [
-        "State", "Fiscal year", "Season", "Supplier", "Contracted tons",
+        "State", "Fiscal year", "Season", "Supplier", tons_name,
         "Priced tons", "Weighted $/ton", "Unweighted $/ton",
         "Contract value ($)", "Volume share", "Counties",
     ] if c in out.columns]
@@ -185,13 +186,14 @@ def supplier_table(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def state_table(df: pd.DataFrame) -> pd.DataFrame:
+    tons_name = briefing.volume_label(df)
     out = df.copy()
     out["state"] = out["state"].map(lambda s: STATE_NAMES.get(s, s))
     out = out.rename(columns={
         "state": "State",
         "fiscal_year": "Fiscal year",
         "season": "Season",
-        "contracted_tons": "Contracted tons",
+        "contracted_tons": tons_name,
         "priced_tons": "Priced tons",
         "weighted_avg_price": "Weighted $/ton",
         "simple_avg_price": "Unweighted $/ton",
@@ -199,7 +201,7 @@ def state_table(df: pd.DataFrame) -> pd.DataFrame:
         "n_counties": "Counties",
     })
     cols = [c for c in [
-        "State", "Fiscal year", "Season", "Contracted tons", "Priced tons",
+        "State", "Fiscal year", "Season", tons_name, "Priced tons",
         "Weighted $/ton", "Unweighted $/ton", "Contract value ($)", "Counties",
     ] if c in out.columns]
     return out[cols].sort_values(["State", "Fiscal year"])
@@ -285,17 +287,22 @@ if v.empty:
 by_supplier = supplier_table(v)
 by_state = state_table(s)
 line_keep = [c for c in [
-    "state", "fiscal_year", "vendor", "county", "program", "channel",
-    "contracted_tons", "price_per_ton", "extended_value", "record_type",
+    "state", "fiscal_year", "vendor", "county", "program", "channel", "purchasing_entity",
+    "contracted_tons", "penndot_tons", "costars_tons", "agency_tons",
+    "price_per_ton", "extended_value", "record_type",
     "source_doc", "source_page", "source_url",
 ] if c in r.columns]
 line_items = r[line_keep].copy()
 if "state" in line_items.columns:
     line_items["state"] = line_items["state"].map(lambda s: STATE_NAMES.get(s, s))
+tons_col = briefing.volume_label(r)
 line_items = line_items.rename(columns={
     "state": "State", "fiscal_year": "Fiscal year", "vendor": "Supplier",
     "county": "County / drop point", "program": "Program", "channel": "Channel",
-    "contracted_tons": "Contracted tons", "price_per_ton": "Price $/ton",
+    "purchasing_entity": "Purchasing entity",
+    "contracted_tons": tons_col, "penndot_tons": "PennDOT tons",
+    "costars_tons": "COSTARS tons", "agency_tons": "Non-PennDOT agency tons",
+    "price_per_ton": "Price $/ton",
     "extended_value": "Extended value ($)", "record_type": "Record type",
     "source_doc": "Source document", "source_page": "Page",
     "source_url": "Source URL",
@@ -368,7 +375,7 @@ else:
     k1.metric(f"FY{latest_fy} Avg. Price", "—")
     k3.metric(f"FY{latest_fy} Estd. Value", "—")
 k2.metric(
-    f"FY{latest_fy} Volume (T)",
+    f"FY{latest_fy} {briefing.volume_label(s)}",
     f"{tons_now / 1000:,.0f}K",
     _delta(tons_now, tons_prev, "{:+,.0f} t vs prior year") if like_for_like and tons_prev else None,
 )
@@ -392,10 +399,18 @@ with st.expander("How to read this"):
         "Headline KPIs are the **latest fiscal year in the From/To range**, not a multi-year average. "
         "Price is the volume-weighted average unless you switch the basis. "
         "FY2027 is the awarded upcoming winter, not delivered volume. "
+        f"{briefing.PA_VOLUME_NOTE} "
+        f"{briefing.UNLIKE_SHARE_NOTE} "
         "Pennsylvania FY2022–FY2023 have published county estimates but **no supplier award**, so those years have volume without a named price. "
         "Both states quote **delivered** $/short ton (not FOB); programs still differ, so the MI–PA price gap is real in the documents but not a like-for-like bid. "
         "Quarterly view places each annual award in Q1 (Oct–Dec). Q2–Q4 have no new published figures; the line connects Q1 awards across years."
     )
+
+if "PA" in sel_states:
+    briefing_notes = [briefing.PA_VOLUME_NOTE]
+    if "MI" in sel_states:
+        briefing_notes.append(briefing.UNLIKE_SHARE_NOTE)
+    st.caption(" ".join(briefing_notes))
 
 st.plotly_chart(charts.price_timeseries(s, metric, grain), width="stretch")
 st.caption(
@@ -426,10 +441,16 @@ for i, code in enumerate(sel_states):
 map_col, bar_col = st.columns(2)
 with map_col:
     st.plotly_chart(charts.state_share_map(s), width="stretch")
-    st.caption(
-        "Share of contracted tons in the **latest fiscal year in the From/To range**. "
-        "The tracker covers Michigan and Pennsylvania only."
-    )
+    map_notes = []
+    if "PA" in sel_states:
+        map_notes.append(briefing.PA_VOLUME_NOTE)
+    if set(sel_states) >= {"MI", "PA"}:
+        map_notes.append(briefing.UNLIKE_SHARE_NOTE)
+    elif sel_states == ["PA"]:
+        map_notes.append("Share of estimated requirements in the **latest fiscal year in the From/To range**.")
+    else:
+        map_notes.append("Share of contracted tons in the **latest fiscal year in the From/To range**.")
+    st.caption(" ".join(map_notes))
 with bar_col:
     st.plotly_chart(charts.state_volume_bars(s), width="stretch")
 
@@ -524,7 +545,7 @@ with tab_table:
         by_supplier,
         width="stretch", height=360, hide_index=True,
         column_config={
-            "Contracted tons": tons_fmt, "Priced tons": tons_fmt,
+            briefing.volume_label(v): tons_fmt, "Priced tons": tons_fmt,
             "Weighted $/ton": money_fmt, "Unweighted $/ton": money_fmt,
             "Contract value ($)": value_fmt, "Volume share": share_fmt,
         },
@@ -535,18 +556,23 @@ with tab_table:
         by_state,
         width="stretch", height=280, hide_index=True,
         column_config={
-            "Contracted tons": tons_fmt, "Priced tons": tons_fmt,
+            briefing.volume_label(s): tons_fmt, "Priced tons": tons_fmt,
             "Weighted $/ton": money_fmt, "Unweighted $/ton": money_fmt,
             "Contract value ($)": value_fmt,
         },
     )
 
     st.subheader("Line items")
-    st.caption("One row per Pennsylvania county or Michigan drop point.")
+    st.caption(
+        "Pennsylvania lot rows are county geography (no buyer). Named COSTARS "
+        "members are extra rows with a purchasing entity from the roster; "
+        "PennDOT and non-PennDOT agencies are split columns on the lot, not inferred buyers."
+    )
     st.dataframe(
         line_items, width="stretch", height=360, hide_index=True,
         column_config={
-            "Contracted tons": tons_fmt, "Price $/ton": money_fmt,
+            tons_col: tons_fmt, "PennDOT tons": tons_fmt, "COSTARS tons": tons_fmt,
+            "Non-PennDOT agency tons": tons_fmt, "Price $/ton": money_fmt,
             "Extended value ($)": value_fmt,
             "Source URL": st.column_config.LinkColumn("Source URL", display_text="Open"),
         },

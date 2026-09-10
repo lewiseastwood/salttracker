@@ -206,3 +206,61 @@ def test_pa_fy2024_matches_published_statewide_average(state):
     row = state[(state["state"] == "PA") & (state["fiscal_year"] == 2024)]
     assert not row.empty
     assert abs(float(row["simple_avg_price"].iloc[0]) - 80.10) < 0.05
+
+
+def test_pa_channel_is_not_hardcoded_blend(raw):
+    """Lot rows no longer pretend PennDOT and COSTARS are one buyer."""
+    assert "PennDOT / COSTARS" not in set(raw["channel"].dropna().astype(str))
+    lot = raw[(raw["state"] == "PA") & (raw["fiscal_year"] == 2027)
+              & (raw["county"] == "Allegheny") & (raw["record_type"] == "award")]
+    assert len(lot) == 1
+    row = lot.iloc[0]
+    assert row["penndot_tons"] == pytest.approx(38_500, abs=1)
+    assert row["costars_tons"] == pytest.approx(104_170, abs=1)
+    assert row["agency_tons"] == pytest.approx(150, abs=1)
+    assert pd.isna(row["purchasing_entity"]) or str(row["purchasing_entity"]).strip() == ""
+    assert row["tons_basis"] == "committed_estimate"
+    assert pd.isna(row["channel"]) or str(row["channel"]).strip() == ""
+
+
+def test_pa_costars_member_allegheny_county_from_roster(raw):
+    members = raw[(raw["state"] == "PA") & (raw["fiscal_year"] == 2027)
+                   & (raw["record_type"] == "costars_member")]
+    assert not members.empty
+    row = members[members["purchasing_entity"] == "Allegheny County"]
+    assert len(row) == 1
+    assert row.iloc[0]["contracted_tons"] == pytest.approx(25_500, abs=1)
+    assert row.iloc[0]["channel"] == "COSTARS"
+
+
+def test_pa_does_not_infer_missing_county_governments(raw):
+    names = set(raw[(raw["state"] == "PA") & (raw["fiscal_year"] == 2027)
+                     & (raw["record_type"] == "costars_member")]["purchasing_entity"].dropna())
+    assert "Washington County" not in names
+    assert "Erie County" not in names
+
+
+def test_pa_members_do_not_inflate_statewide_tons(state, raw):
+    row = _one(state, state="PA", fiscal_year=2027)
+    assert row["contracted_tons"] == pytest.approx(1_650_178, abs=1)
+    members = raw[(raw["state"] == "PA") & (raw["fiscal_year"] == 2027)
+                  & (raw["record_type"] == "costars_member")]
+    assert members["contracted_tons"].sum() > 0
+
+
+def test_michigan_rows_name_a_drop_point_and_channel(raw):
+    mi = raw[raw["state"] == "MI"]
+    assert not mi.empty
+    assert mi["entity"].notna().all()
+    assert mi["channel"].notna().all()
+
+
+def test_fy2027_estimates_split_matches_attachment():
+    path = os.path.join(RAW_ROOT, "PA", "PA_estimates_FY2027_6100065611.pdf")
+    if not os.path.exists(path):
+        pytest.skip("FY2027 estimates PDF not downloaded")
+    frame = pa_estimates.parse(path)
+    row = frame[frame["county"] == "Allegheny"].iloc[0]
+    assert row["penndot_tons"] == pytest.approx(38_500, abs=1)
+    assert row["costars_tons"] == pytest.approx(104_170, abs=1)
+    assert row["agency_tons"] == pytest.approx(150, abs=1)

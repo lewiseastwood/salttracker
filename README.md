@@ -9,8 +9,9 @@ CSV/Excel dataset and an interactive dashboard.
 | Term | Definition |
 |---|---|
 | Fiscal year | Oct 1 – Sep 30, named for the year it **ends**. The 2025/2026 winter season is **FY2026**. |
-| Contracted volume | Tons a supplier is awarded/committed to, summed across all programs (Michigan early fill + seasonal back-up). |
-| Contracted price | **Total contract value ÷ total contracted volume** — the effective weighted-average price per ton. |
+| Contracted volume (MI) | Drop-point award tons (MDOT garages and named MiDEAL members), summed across early fill and seasonal back-up. |
+| Estimated requirements (PA) | County-lot cumulative **estimate** of requirements committed before the season (PennDOT + COSTARS members + non-PennDOT agencies). Not tons purchased or delivered. |
+| Contracted price | **Total contract value ÷ priced volume** — the effective weighted-average price per ton. |
 | Simple average | Unweighted mean of posted county prices. Carried as a secondary column because it is the figure states publish as their headline "statewide average". |
 
 Contracts for the next winter are awarded in **July–August**, so FY2027 contracts
@@ -50,7 +51,7 @@ open the `*.streamlit.app` link; they do not need GitHub access.
 
 | File | Contents |
 |---|---|
-| `salt_contracts_raw.csv` | One row per county (PA) or drop point (MI), with source document and page for traceability |
+| `salt_contracts_raw.csv` | One row per PA county lot or MI drop point, plus COSTARS member rows where a roster exists; PA split columns and `purchasing_entity` where known |
 | `salt_contracts_by_vendor.csv` | State × fiscal year × vendor: volume, weighted price, contract value, volume share |
 | `salt_contracts_by_state.csv` | State × fiscal year totals |
 | `salt_contract_tracker.xlsx` | All of the above plus a source-coverage sheet |
@@ -76,8 +77,7 @@ from two different documents and are joined by county:
   every county's tonnage split across PennDOT, COSTARS members and state
   agencies. The COSTARS packet itself publishes no statewide tonnage.
 
-Because DGS awards each county to a single supplier for a season, county tonnage
-is credited to whichever supplier holds that county.
+Because DGS awards each county to a single supplier for a season, that county's estimated requirements are credited to whichever supplier holds the lot. PennDOT / COSTARS / non-PennDOT agency tons are stored as split columns on the lot; named COSTARS buyers are extra `costars_member` rows (`purchasing_entity` from the roster, null on lot rows). Member tons are **not** rolled into statewide totals. Michigan volume is contracted drop-point awards; the two-state share compares unlike quantities.
 
 **Historical recovery** — states overwrite these pages each summer, so prior years
 come from the Wayback Machine (`sources.py:discover_michigan_archived`).
@@ -129,13 +129,13 @@ Each run also appends to `data/refresh_log.jsonl`.
 
 ## Pennsylvania follow-up (pilot)
 
-Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack for the five Pennsylvania counties with the most FY2027 contracted tons (Allegheny, Westmoreland, Luzerne, Washington, Erie):
+Statewide COSTARS packets do not include a county's own salt purchase if it buys off-contract. `scripts/pa_followup.py` is a **draft-only** Right-to-Know pack for the five Pennsylvania counties with the most FY2027 estimated lot requirements (Allegheny, Westmoreland, Luzerne, Washington, Erie). Those figures are geographic lots, not county-government purchases:
 
 ```bash
 PYTHONPATH=src .venv/bin/python scripts/pa_followup.py
 ```
 
-That writes `data/output/pa_followup/PA_procurement_contacts.xlsx` and `.eml` drafts. Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. Optional `--poll-inbox` forwards unseen IMAP replies that look like salt/RTK responses to `SALTTRACKER_ALERT_EMAIL`.
+That writes `data/output/pa_followup/PA_procurement_contacts.xlsx` and `.eml` drafts. Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED; file by mail. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. Optional `--poll-inbox` forwards unseen IMAP replies that look like salt/RTK responses to `SALTTRACKER_ALERT_EMAIL`.
 
 ## Extraction hazards handled
 
