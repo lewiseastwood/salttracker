@@ -10,14 +10,22 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import pa_followup as followup  # noqa: E402
 
 
-def test_contacts_are_five_pa_counties():
+def test_contacts_are_five_pa_counties_with_aoro():
     rows = followup.load_contacts()
     assert len(rows) == 5
     counties = [r["county"] for r in rows]
     assert counties == ["Allegheny", "Westmoreland", "Luzerne", "Washington", "Erie"]
+    by_county = {r["county"]: r for r in rows}
+    assert by_county["Allegheny"]["aoro_email"] == "openrecords@alleghenycounty.us"
+    assert by_county["Westmoreland"]["aoro_email"] == "records@westmorelandcountypa.gov"
+    assert by_county["Luzerne"]["aoro_email"] == "Admin-RTK@luzernecounty.org"
+    assert by_county["Erie"]["aoro_email"] == "DHeasley@eriecountypa.gov"
+    assert by_county["Washington"]["aoro_status"] == "UNVERIFIED"
+    assert by_county["Washington"]["aoro_email"] == "UNVERIFIED"
     for row in rows:
-        assert "@" in row["email"]
-        assert row["source_url"].startswith("http")
+        assert row["aoro_source_url"].startswith("http")
+        assert row["purchasing_email"]
+        assert "purchasing@" not in (row["aoro_email"] or "").lower() or row["aoro_status"] == "UNVERIFIED"
 
 
 def test_draft_only_does_not_send(tmp_path, monkeypatch):
@@ -33,6 +41,8 @@ def test_draft_only_does_not_send(tmp_path, monkeypatch):
     body = drafts[0].read_text(errors="replace")
     assert "Right-to-Know" in body
     assert "COSTARS" in body
+    wash = next(p for p in drafts if "washington" in p.name)
+    assert "UNVERIFIED-DO-NOT-SEND" in wash.read_text(errors="replace")
 
 
 def test_send_without_confirm_raises(monkeypatch):
@@ -43,3 +53,9 @@ def test_send_without_confirm_raises(monkeypatch):
         assert False, "should have refused"
     except RuntimeError as exc:
         assert "CONFIRM" in str(exc)
+
+
+def test_washington_aoro_email_is_not_sendable():
+    rows = {r["county"]: r for r in followup.load_contacts()}
+    assert followup.aoro_email(rows["Washington"]) is None
+    assert followup.aoro_email(rows["Allegheny"]) == "openrecords@alleghenycounty.us"

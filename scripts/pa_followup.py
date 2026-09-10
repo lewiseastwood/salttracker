@@ -61,8 +61,8 @@ def load_contacts(path: Path = CONTACTS) -> list[dict]:
 
 
 def greeting_line(row: dict) -> str:
-    officer = (row.get("officer") or "").strip()
-    role = (row.get("role") or "Purchasing").strip()
+    officer = (row.get("aoro_officer") or "").strip()
+    role = (row.get("aoro_title") or "Agency Open Records Officer").strip()
     county = row.get("county") or "the county"
     if officer:
         return f"Dear {officer}, {role}, {county} County:"
@@ -79,6 +79,16 @@ def sender_fields() -> tuple[str, str, str]:
     return reply, name, org
 
 
+def aoro_email(row: dict) -> str | None:
+    status = (row.get("aoro_status") or "").strip().upper()
+    email = (row.get("aoro_email") or "").strip()
+    if status != "VERIFIED":
+        return None
+    if not email or email.upper() == "UNVERIFIED" or "@" not in email:
+        return None
+    return email
+
+
 def draft_message(row: dict, stamp: str) -> EmailMessage:
     reply, name, org = sender_fields()
     if not reply:
@@ -86,9 +96,14 @@ def draft_message(row: dict, stamp: str) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = SUBJECT
     msg["From"] = os.environ.get("SALTTRACKER_SMTP_FROM", reply)
-    msg["To"] = row["email"]
+    dest = aoro_email(row)
+    if dest:
+        msg["To"] = dest
+    else:
+        msg["To"] = "UNVERIFIED-DO-NOT-SEND"
     msg["Date"] = stamp
     msg["X-SaltTracker-County"] = row["county"]
+    msg["X-SaltTracker-AORO-Status"] = row.get("aoro_status") or ""
     msg.set_content(BODY.format(
         greeting=greeting_line(row),
         reply_to=reply,
@@ -115,11 +130,13 @@ def write_workbook(rows: list[dict], path: Path) -> None:
         ws.column_dimensions[col[0].column_letter].width = min(48, max(14, len(str(col[0].value or "")) + 4))
     note = wb.create_sheet("How to use")
     note["A1"] = (
-        "Pilot: five Pennsylvania counties by FY2027 contracted tons on the "
-        "statewide COSTARS award. Emails are department inboxes published on "
-        "county websites (retrieved 10 Sep 2026). Default: python scripts/pa_followup.py "
+        "Pilot: five Pennsylvania counties by FY2027 contracted tons. "
+        "Primary recipient is the county Agency Open Records Officer (RTKL), "
+        "verified 10 Sep 2026 from the county Right-to-Know page. Purchasing "
+        "contacts are secondary only. Washington AORO email is UNVERIFIED "
+        "(not published; use the county web form). Default: python scripts/pa_followup.py "
         "writes this workbook and .eml drafts. Sending requires --send and "
-        "SALTTRACKER_FOLLOWUP_CONFIRM=YES. IMAP forwarding of replies uses --poll-inbox."
+        "SALTTRACKER_FOLLOWUP_CONFIRM=YES and skips UNVERIFIED rows."
     )
     note["A1"].alignment = Alignment(wrap_text=True, vertical="top")
     note.row_dimensions[1].height = 80
@@ -155,9 +172,12 @@ def send_drafts(rows: list[dict], stamp: str) -> list[str]:
         if user:
             smtp.login(user, password)
         for row in rows:
+            if not aoro_email(row):
+                notes.append(f"skipped {row['county']}: AORO email UNVERIFIED")
+                continue
             msg = draft_message(row, stamp)
             smtp.send_message(msg)
-            notes.append(f"sent {row['county']} -> {row['email']}")
+            notes.append(f"sent {row['county']} -> {aoro_email(row)}")
     return notes
 
 

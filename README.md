@@ -135,7 +135,7 @@ Statewide COSTARS packets do not include a county's own salt purchase if it buys
 PYTHONPATH=src .venv/bin/python scripts/pa_followup.py
 ```
 
-That writes `data/output/pa_followup/PA_procurement_contacts.xlsx` and `.eml` drafts. Contacts are department inboxes published on county websites (`data/pa_followup/contacts.csv`). The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. Optional `--poll-inbox` forwards unseen IMAP replies that look like salt/RTK responses to `SALTTRACKER_ALERT_EMAIL`.
+That writes `data/output/pa_followup/PA_procurement_contacts.xlsx` and `.eml` drafts. Recipients are each county’s **Agency Open Records Officer** (RTKL), verified from the county Right-to-Know page; purchasing inboxes are a secondary column only. Washington’s AORO email is not published and is marked UNVERIFIED. The script **does not send mail** unless you pass `--send` and set `SALTTRACKER_FOLLOWUP_CONFIRM=YES`, plus the existing SMTP secrets. Optional `--poll-inbox` forwards unseen IMAP replies that look like salt/RTK responses to `SALTTRACKER_ALERT_EMAIL`.
 
 ## Extraction hazards handled
 
